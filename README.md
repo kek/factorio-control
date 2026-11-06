@@ -82,3 +82,7 @@ mix run scenarios/production.exs
 Process-lifecycle tests use small fake executables to exercise Port output, readiness, startup failure, and graceful shutdown. Protocol tests use local fake TCP servers, covering fragmented reads, multi-packet replies, authentication rejection, malformed frames, response IDs, deadlines, and lost replies without retries. Live tests require an idle mod-owned bot on Nauvis with room nearby, spare inventory space, and no furnace in its inventory. They temporarily grant two chest items and two wood through administrator Lua, then clean up the fixture. Do not run another bot plan concurrently. A failed test or transport loss can require manual fixture cleanup.
 
 The production scenario uses the existing POC iron drill at `(29,-42)`, furnace at `(29,-40)`, and coal tile at `(45.5,17.5)`. It walks to coal, mines 12 pieces, returns, fuels both machines, and waits for the iron-plate count to increase. It creates no items. It requires that coal tile still exist, the route remain clear, and the furnace output have room.
+
+## Greens
+
+[`greens/`](greens/README.md) is a separate, self-contained game built to explore the same idea: players control bots only through EYG programs run by the server. It includes a step-metered EYG interpreter that passes the upstream spec suites, a game server and a replay viewer. It runs on Node 22 with no dependencies.
