@@ -1,186 +1,88 @@
 # Factorio Control design
 
-This is the maintained design reference for Factorio Control. Nothing is implemented yet. API details and protocol behavior described below must be verified against the chosen Factorio 2.0 release. Untested code sketches are preserved in the appendix as reference material.
+This is the maintained design reference. The current implementation targets **Factorio 2.1.24**, the version used for the live proof of concept. Earlier plans targeted 2.0; compatibility with 2.0 is not claimed. The host requires Elixir 1.18+ and OTP 27+ and has no external dependencies.
 
-## Goal and scope
+## Goal and architecture
 
-Control a character on a headless Factorio server from an external program, eventually driven by an LLM, initially Claude. Start with a small, observable loop: inspect the world, perform an action, and inspect the result.
-
-The first milestone covers server setup, RCON communication, and spawning, walking, and building. Mining, crafting, inventory transfers, pathfinding, and EYG integration follow once that loop works.
-
-## Architecture
+Control a character on a headless server with a small observable loop: inspect the world, act, inspect the result. Ultimately an LLM, initially Claude, should write EYG programs using the same bot capabilities.
 
 ```text
-LLM-generated EYG program
+LLM-generated EYG program (future)
           |
           v
-Elixir host / effect handlers
+Elixir host / effect handlers (handlers are future work)
           |
-          | RCON commands and JSON responses
+          | Source RCON over TCP; Lua calls and JSON responses
           v
 Factorio headless server
           |
           v
-Lua bot mod -> character and world
+factorio-control mod -> character and world
 ```
 
-The server runs the simulation. The mod owns the bot character and actions that need work across ticks. The Elixir host manages RCON, dispatches actions, and decodes results. A normal Factorio client can join to observe the bot with a separate player character.
+The mod owns the character and actions spanning ticks. The Elixir host serializes RCON requests and decodes structured results. A normal client can join with a separate character to observe. The mod is installed in both server and client; versions and enabled mods must match.
 
-## Server setup
+## Server and transport
 
-Target Factorio 2.0, pinning the exact version when implementation begins. Use the Linux headless distribution and a dedicated save. Proposed startup commands:
+`FactorioControl.Server` optionally owns the headless OS process through an Elixir `Port`; `mix factorio.server` runs that owner and streams output. The Port launches `scripts/server`, which execs Factorio with the game save, mod, and `server-settings.json` as described in the README. The password must be supplied through `FACTORIO_RCON_PASSWORD`; the script never reads or commits credentials itself. The settings disable auto-pause so simulation continues without players. Game clients connect on `34197/UDP`; RCON uses `27015/TCP`. The protocol is unencrypted and belongs on localhost or a private network.
 
-```sh
-./bin/x64/factorio --create saves/bot.zip
-./bin/x64/factorio --start-server saves/bot.zip \
-  --rcon-port 27015 --rcon-password "$FACTORIO_RCON_PASSWORD" \
-  --server-settings server-settings.json
-```
+The server owner retains the latest 64 KiB of output, monitors the OS exit status, and exposes startup/readiness/status and stop operations. `/quit` on stdin requests a save and graceful shutdown; stop waits for the actual exit status. It does not rely on closing a Port to kill the OS child. SIGTERM of the Mix server task requests this shutdown. A shutdown timeout leaves ownership and logs available for inspection, with no automatic restart. Forced VM/OS termination can bypass cleanup and requires external process supervision for a stronger lifecycle guarantee.
 
-Copy `data/server-settings.example.json` to `server-settings.json` and set `auto_pause` to `false` so the simulation continues without connected players. Supply the RCON password locally; do not commit it. Keep RCON on localhost or a private network because the protocol is unencrypted.
+`FactorioControl.Rcon` is a separate GenServer owning a passive TCP socket. Source RCON packets have a little-endian signed length, request ID and type, UTF-8 body, and two null terminators. Authentication uses type 3; commands use type 2. The client accepts an optional empty type-0 authentication packet, verifies the type-2 reply and ID, and rejects ID -1.
 
-To observe a local server, use Multiplayer → Connect to address in the game client and connect to `localhost` on the default game port, `34197/UDP`. Client and server must use matching game versions and mods. Initially, install the bot mod in both locations by hand.
+Commands use `/sc` (`/silent-command`) and `rcon.print`. Script commands disable achievements; the game may require repeating the initial command. The client never automatically confirms or repeats it. Lua is wrapped in `pcall` and terminated with a random completion marker. The receiver skips empty packets, joins fragments (even a split marker), validates nonempty response IDs, packet sizes and terminators, and applies a single deadline to the entire response. Frames are capped at 4 MiB and accumulated replies at 16 MiB.
 
-## RCON client
+A transport/protocol failure closes the socket and reports an **unknown outcome**. No automatic reconnect or retry occurs. If a reply to a mutation is lost, inspect the world and inventory after reconnecting. Async action IDs remain queryable if the caller received the ID; they do not provide deduplication for a request whose acceptance response was lost. `Rcon.lua` is an administrator escape hatch for setup/debugging, separate from `Bot.call`'s gameplay methods.
 
-Implement the Source RCON protocol over TCP in Elixir. Packets contain a little-endian length, request ID, type, and a body followed by two null bytes. Authentication uses type `3`; command execution uses type `2`.
+## Mod interface
 
-Use `/sc` (`/silent-command`) to invoke Lua and `rcon.print` to return results. An initial connectivity check is `/sc rcon.print(game.tick)`. Running script commands is expected to disable achievements for the save; verify this behavior for the chosen release.
+`mods/factorio-control` exposes `remote.call("bot", "request", request)`. Requests are `{method = "...", args = {...}}`; remote functions return data and the RCON entry point prints JSON through `helpers.table_to_json`. Host arguments are JSON-encoded and then escaped as Lua string bytes, never interpolated as Lua expressions.
 
-The client in the appendix is an untested sketch. Before relying on it, verify authentication response ordering, rejection with request ID `-1`, and how Factorio splits long responses. The implementation should validate packet lengths and response IDs, handle partial reads and timeouts, and identify when a response is complete. A lost response to a state-changing command must not cause an automatic retry that repeats the action.
+Success responses are `{ok = true, tick = game.tick, data = ...}`. Errors are `{ok = false, tick = game.tick, error = {code = "...", message = "..."}}`. A successful transport call can contain a game error. Empty Lua collections currently serialize as `{}` rather than `[]`; nonempty inventory collections contain `{name, quality, count}` entries.
 
-## Bot mod
+| Method | Arguments | Result / behavior |
+| --- | --- | --- |
+| `spawn` | Optional `position: {x,y}`, `surface` (default `nauvis`) | Creates an empty player-force character at a noncolliding position within 16 tiles; returns the existing living bot on repeat. Explicit spawn after death creates a replacement without recovering lost inventory. |
+| `inspect` | Optional `radius` (0–64, default 16), `name` entity filter | Position, health, inventory, active action, and up to 200 nearby entity summaries with a truncation flag. Friendly machines include fuel/output; furnaces include input. |
+| `walk_to` | `position`, optional `timeout_ticks` (1–3600, default 1800) | Accepts a bounded straight-line walking action. Stops within 0.5 tile or fails at its deadline. No pathfinding yet. |
+| `mine` | Resource `position`, matching output `item`, optional `count` (1–1000, default 1) and `timeout_ticks` | Mines a single resource tile in reach using normal mining progress, until the inventory increases by `count`. Depletion before completion fails with partial count reported. |
+| `action` | `id` | Current or terminal action record; unknown/expired IDs return an error. |
+| `stop` | None | Cancels the active action and explicitly clears walking, mining, and selection. Safe to repeat. |
+| `build` | `item`, `position`, optional cardinal `direction` | Inventory-backed placement of a starter drill, furnace, wooden chest, transport belt, or burner inserter. Returns the actual entity summary. |
+| `transfer` | `entity` name, `position`, `inventory`, `direction` (`take`/`give`), `item`, `count` (1–1000) | Transfers exactly the requested quantity of normal-quality ordinary items to/from a reachable friendly entity. No transfer on insufficient items or capacity. |
 
-The mod exposes a `bot` interface through `remote.add_interface`. It creates a character entity without requiring a connected human player and keeps persistent state in Factorio 2.0's `storage` (`global` in 1.1). The proposed approach controls the character through `LuaControl`, with `info.json` and `control.lua` in `mods/bot/`.
+Transfer inventory selectors are `fuel`, `output`, furnace `input`, and chest/character `main`. Stack types with metadata, such as blueprints, are excluded. Higher-quality stacks, fast replacement, ghosts, blueprints, arbitrary prototypes, crafting, and entity removal are outside the current gameplay API.
 
-The initial interface should support:
+Building checks the supported item and its `place_result`, inventory, distance, grid alignment, character placement rules and surface collision rules before creation. Odd tile widths require half-integer coordinates; even widths require integers. Supported entities have square footprints. The item is consumed only after entity creation succeeds; failed removal destroys the newly created entity. The implementation uses validated `create_entity`, rather than promising equivalence with every player event/undo behavior. Other gameplay mods have not been tested.
 
-| Action | Intended behavior |
-| --- | --- |
-| `spawn` | Create the bot at a valid position; define behavior if one already exists. |
-| `walk` | Set a direction or stop movement. |
-| `pos` / inspect | Return position and relevant world or inventory state. |
-| `build` | Place an entity using the bot's inventory and allowed reach. |
+## Action lifecycle and persistence
 
-Movement runs through an `on_tick` handler. Stopping must explicitly clear walking state, and handlers must tolerate a missing or invalid character. Keep per-tick work small to preserve simulation speed.
+The mod stores the bot, sequence counter, active action, and the latest 64 action records in its own Factorio `storage`. One walk or mine action can run at once. Other mutations reject requests while it runs; inspection, status queries, and stopping remain available.
 
-Return structured JSON through `helpers.table_to_json` and `rcon.print`, with consistent success and error results. Remote functions should preferably return data, with the RCON entry point responsible for printing it. Exact request and response schemas remain to be defined.
+Actions transition from `running` to `completed`, `failed`, or `cancelled`. Records include ID, kind, start/deadline ticks, finish tick when terminal, and error details when failed. Mine actions report the collected count. Death/removal fails the active action. `on_tick` work is bounded: update movement or mining state, check progress/deadline, and clear state on completion. It performs no broad world scans.
 
-Building should check the required item, reach, and placement before changing inventory, and should consume items only for a successful placement. The appendix’s `can_place_entity` / `create_entity` sketch does not establish that these checks match normal player behavior; verify the supported character APIs and failure cases before implementing it.
+Mining must call `update_selected_entity` as well as setting `mining_state`; setting the mining position alone did not sustain mining on the standalone character. Walking and mining are reapplied each tick. An unexpected tick-handler error fails the action and stops the character.
 
-Later actions cover mining, crafting, inventory transfers, and asynchronous pathfinding. Candidate APIs are `mining_state`, `begin_crafting`, `insert`, `remove_item`, and `surface.request_path`; verify their availability and behavior for the chosen version. Direct entity creation or item grants may be useful for test setup, but ordinary gameplay effects should enforce the intended game rules. Ghost and blueprint placement (`entity-ghost`, `LuaItemStack.build_blueprint`) is a later option for an LLM planner when construction robots are available.
+A host disconnect leaves the mod-owned bounded action running. `Bot.await` polls `action` without resubmitting it. Its wall-clock timeout does not cancel the in-game action; query or stop explicitly. Save/load persists active actions, deadlines, inventory, and IDs; game ticks resume from the saved tick. No `on_load` mutation is needed. Unsaved work cannot be recovered after a crash. Expired action records cannot be queried. Other actors modifying the bot inventory can affect mine-count completion, so only one host should control it.
 
-## EYG effect boundary
+## Verification and current evidence
 
-The proposed effects include `Place`, `Mine`, `Craft`, `Inspect`, `Wait(ticks)`, and `AwaitCondition`. Each handler validates its input, calls the mod, and returns a structured result. The model should receive these capabilities rather than arbitrary Lua or RCON access.
+The local POC built a drill feeding a furnace directly at `(29,-42)` / `(29,-40)`. A first console-driven character used the starting equipment and mined fuel. The mod-owned character is separate and starts empty.
 
-EYG is intended to provide inferred effect types for checking plans, interchangeable handlers for dry runs, replayable recorded traces, and approval gates, and serializable continuations for suspension and resumption. The rationale for this capability boundary over FLE-style Python is that gameplay bypasses are available only if a handler exposes them. This follows the earlier arm's-length email-agent design; the details of that design are outside this document. These integration assumptions still need verification. A suspended program does not itself solve completion notification: the host needs a defined way to learn that a tick deadline or condition has been reached, so the LLM need not poll.
+The Elixir/mod production scenario subsequently walked to coal, mined 12 pieces, returned, refueled both machines and observed fresh plates (41 to 42 on the first run). The line remains in the test save. Protocol tests cover fragmentation, multiple replies, authentication rejection, invalid framing/IDs, deadlines, and no retries after a lost reply. Opt-in live tests exercise item conservation, failed and successful placement, transfers, cancellation, deadlines, and action queries from a new connection. See the README for commands and fixture assumptions.
 
-Start model integration with a compact language reference, worked examples, and fast error feedback. Emitting EYG's JSON IR is an option if source generation is unreliable. MCP is another possible adapter to the same bot operations.
+## EYG effect boundary and future work
 
-## Constraints and open questions
+Proposed effects include `Place`, `Mine`, `Craft`, `Inspect`, `Wait(ticks)`, and `AwaitCondition`. Each handler should validate input, call the mod, and return structured results. The model should receive these capabilities rather than arbitrary Lua or RCON access. MCP is another possible adapter to the same operations.
 
-Mods operate within deterministic lockstep simulation constraints and cannot directly read network or file input. Commands arrive through RCON; results can use RCON output or files in `script-output` through `helpers.write_file`. Avoid expensive scans on every tick: heavy per-tick work reduces updates per second (UPS).
+EYG is intended to provide inferred effect types for checking plans, interchangeable handlers for dry runs, replayable traces and approval gates, and serializable continuations for suspension/resumption. This follows the earlier arm's-length email-agent design. These integration assumptions remain unverified. A suspended program also needs a defined completion notification mechanism; the initial host currently polls action status.
 
-Potential observability options include Graftorio-style file export to Prometheus and `--benchmark-verbose` timings. These are research options; verify their setup and suitability before adopting them.
+Models may need a compact EYG language reference, worked examples, fast type-error feedback, or JSON IR output. Further gameplay work includes crafting (`begin_crafting`), asynchronous pathfinding (`surface.request_path`), richer resource queries, inventory views, and eventually construction-robot ghost/blueprint workflows (`entity-ghost`, `LuaItemStack.build_blueprint`). Verify each new API against the pinned release.
 
-Before expanding the action vocabulary, resolve:
+Before expanding integration, define stable request deduplication/recovery for lost acceptance replies, richer entity selection, and whether action completion should be pushed or polled. Respawn policy, cancellation of future crafting/pathfinding, and multi-host ownership also need decisions.
 
-- Which exact game version and mod API will be supported?
-- How are the character's initial inventory, spawn position, death, and respawn handled?
-- How do actions report acceptance, completion, failure, and cancellation?
-- How are pending actions and host continuations reconciled after a reconnect or server restart?
-- What state and higher-level primitives does the model need to act effectively?
+## Constraints, observability, and prior art
 
-## Prior art and model interface
+Mods run in deterministic lockstep and cannot read network or file input. Commands arrive through RCON; output can use `rcon.print` or `script-output` files via `helpers.write_file`. Heavy per-tick work reduces UPS. Potential metrics options include Graftorio-style file export to Prometheus and `--benchmark-verbose` timings; these have not been integrated.
 
-The Factorio Learning Environment (FLE, NeurIPS 2025) is a prior-art research lead, reported to provide a Python REPL API over RCON with MCP support and to target Factorio 1.1.110 rather than 2.0. Its version compatibility and findings have not been independently checked here; treat these as research leads.
-
-Borrow candidate primitives such as connecting entities with belts and finding the nearest resource. Reported FLE findings suggest that good primitives, textual state, and self-correction were more useful than vision, which worsened results. Investigate those findings when choosing the effect vocabulary and the state presented to the model.
-
-## Implementation sequence
-
-1. Install and pin the headless server, create a dedicated save, and verify that ticks advance with no players connected.
-2. Implement and test RCON authentication, packet handling, and a round trip to `game.tick`.
-3. Load the mod; spawn, walk, stop, inspect, and build a furnace while observing from a game client. Check failed placement and insufficient inventory as well as success.
-4. Add mining, crafting, inventory transfers, and pathfinding with consistent JSON results and action lifecycle semantics.
-5. Connect EYG effect handlers or an MCP adapter, then test short model-generated plans with recorded action results.
-
-## Appendix: untested code sketches
-
-These sketches provide concrete starting points. The RCON client reads its password from a local environment variable. They are not implementations of the requirements above.
-
-### Elixir RCON client
-
-This sketch assumes one response packet, discards response IDs and types, and lacks authentication validation, length checks, and timeouts. In particular, investigate the possible extra empty packet before the authentication response. Resolve the protocol issues in the RCON client section before using it.
-
-```elixir
-defmodule Rcon do
-  def connect(host, port, pw) do
-    {:ok, s} = :gen_tcp.connect(host, port, [:binary, active: false])
-    :ok = send_pkt(s, 1, 3, pw)
-    {:ok, _} = recv(s)
-    s
-  end
-
-  def exec(s, cmd) do
-    :ok = send_pkt(s, 2, 2, cmd)
-    recv(s)
-  end
-
-  defp send_pkt(s, id, type, body) do
-    p = <<id::little-32, type::little-32, body::binary, 0, 0>>
-    :gen_tcp.send(s, <<byte_size(p)::little-32, p::binary>>)
-  end
-
-  defp recv(s) do
-    {:ok, <<len::little-32>>} = :gen_tcp.recv(s, 4)
-    {:ok, <<_id::little-32, _t::little-32, body::binary>>} = :gen_tcp.recv(s, len)
-    {:ok, binary_part(body, 0, byte_size(body) - 2)}
-  end
-end
-
-s = Rcon.connect(~c"localhost", 27015, System.fetch_env!("FACTORIO_RCON_PASSWORD"))
-Rcon.exec(s, "/sc rcon.print(game.tick)")
-```
-
-### Lua bot mod
-
-This sketch omits mod metadata and lifecycle handling. It does not explicitly stop walking, validate all character accesses, establish reach checks, or protect inventory against failed entity creation. It also prints mixed plain-text and JSON responses directly from remote functions. The design requirements above take precedence over these shortcuts; the character API calls still need verification.
-
-```lua
-remote.add_interface("bot", {
-  spawn = function()
-    storage.c = game.surfaces[1].create_entity{
-      name = "character", position = {0, 0}, force = "player"}
-  end,
-  walk = function(dir) storage.dir = dir end, -- "north", nil to stop
-  pos = function()
-    local p = storage.c.position
-    rcon.print(helpers.table_to_json{x = p.x, y = p.y})
-  end,
-  build = function(name, x, y)
-    local c = storage.c
-    if c.get_item_count(name) < 1 then return rcon.print("no item") end
-    if not c.can_place_entity{name = name, position = {x, y}} then
-      return rcon.print("can't place") end
-    c.remove_item{name = name, count = 1}
-    c.surface.create_entity{name = name, position = {x, y}, force = c.force}
-    rcon.print("ok")
-  end,
-})
-
-script.on_event(defines.events.on_tick, function()
-  local c = storage.c
-  if c and c.valid and storage.dir then
-    c.walking_state = {walking = true,
-                       direction = defines.direction[storage.dir]}
-  end
-end)
-```
-
-Example invocation:
-
-```text
-/sc remote.call("bot","build","stone-furnace",3,4)
-```
+The Factorio Learning Environment (FLE, NeurIPS 2025) is a research lead, reported to offer a Python REPL API over RCON with MCP support and to target Factorio 1.1.110. Its compatibility and findings have not been independently checked here. Candidate higher-level primitives include belt connections and nearest-resource queries. Reported FLE findings favor good primitives, textual state and self-correction over vision; investigate them when designing the model's state and effects.

@@ -1,0 +1,9 @@
+{
+  "name": "factorio-control",
+  "version": "0.1.0",
+  "title": "Factorio Control",
+  "author": "Factorio Control contributors",
+  "factorio_version": "2.1",
+  "dependencies": ["base >= 2.1.24"],
+  "description": "A bounded, inventory-backed character interface for an external host."
+}

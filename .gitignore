@@ -3,3 +3,8 @@
 *.log
 tmp/
 factorio/
+/_build/
+/deps/
+/erl_crash.dump
+/.env
+/.envrc

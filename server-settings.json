@@ -1,0 +1,7 @@
+{
+  "name": "Factorio Control",
+  "description": "Local bot development server",
+  "visibility": {"public": false, "lan": true},
+  "auto_pause": false,
+  "auto_pause_when_players_connect": false
+}

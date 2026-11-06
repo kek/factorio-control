@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+: "${FACTORIO_RCON_PASSWORD:?Set FACTORIO_RCON_PASSWORD before starting the server}"
+cd "$project_dir/factorio"
+mkdir -p mods
+if [[ ! -e mods/factorio-control ]]; then
+  ln -s ../../mods/factorio-control mods/factorio-control
+fi
+exec ./bin/x64/factorio --start-server ./saves/my-save.zip \
+  --server-settings "$project_dir/server-settings.json" \
+  --rcon-port 27015 --rcon-password "$FACTORIO_RCON_PASSWORD"
