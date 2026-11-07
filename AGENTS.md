@@ -1,0 +1,6 @@
+# Factorio gameplay workflow
+
+- Inspect and control the game only through typed EYG host effects executed by EYG programs. Do not bypass them with direct `Rcon.lua`, console Lua, `Bot.call`, `mix factorio`, or temporary administrator scripts for gameplay or planning.
+- When a task needs a missing observation or action, first extend the host contract and bounded mod implementation, test it, then use that capability through EYG. Preserve execution traces and inspect confirmed results before continuing after a failure; never blindly resubmit uncertain mutations.
+- Server installation and lifecycle operations use the Elixir Port owner. Mod deployment may save/restart the server, but must not become an alternate gameplay interface. Fake-backend and isolated Lua tests are appropriate for developing effects; do not use administrator test fixtures to supply materials for gameplay tasks.
+- Whenever changing the mod, update both the server and the standalone client at `~/Applications/factorio/mods/factorio-control`. They currently link to `mods/factorio-control`; verify that the links are enabled and resolve to identical source. Restart the server and remind the user to restart the graphical client after Lua changes.

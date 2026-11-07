@@ -1,0 +1,25 @@
+// Read-only verification: chest totals must grow on every lane.
+let chest = (x2) -> {
+ match perform InspectEntity({name: "iron-chest", position: {x2: x2, y2: -75}}) {
+  Ok(s) -> {!list_fold(s.entity.inventory, 0, (stack, n) -> {
+   match !equal(stack.name, "iron-plate") {True(_) -> {!int_add(n, stack.count)} | (_) -> {n}}
+  })}
+  Error(_) -> {-1}
+ }
+}
+let a = chest(51)
+let b = chest(59)
+let c = chest(67)
+let d = chest(75)
+let waited = match perform Wait({ticks: 1200}) {Ok(_) -> {True({})} Error(_) -> {False({})}}
+let aa = chest(51)
+let bb = chest(59)
+let cc = chest(67)
+let dd = chest(75)
+let present = !equal({a: !int_compare(a, -1), b: !int_compare(b, -1), c: !int_compare(c, -1), d: !int_compare(d, -1)}, {a: Gt({}), b: Gt({}), c: Gt({}), d: Gt({})})
+let growth = !equal({a: !int_compare(aa, a), b: !int_compare(bb, b), c: !int_compare(cc, c), d: !int_compare(dd, d)}, {a: Gt({}), b: Gt({}), c: Gt({}), d: Gt({})})
+{
+ success: !equal({present: present, growth: growth, waited: waited}, {present: True({}), growth: True({}), waited: True({})}),
+ lane25: {before: a, after: aa}, lane29: {before: b, after: bb},
+ lane33: {before: c, after: cc}, lane37: {before: d, after: dd}
+}

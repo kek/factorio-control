@@ -1,0 +1,29 @@
+// All planning observations go through read-only EYG host effects.
+let recipe = (name) -> {
+  match perform InspectRecipe({name: name}) {
+    Ok(s) -> {{enabled: s.recipe.enabled, craftable: s.recipe.craftable, ingredients: s.recipe.ingredients, products: s.recipe.products, error: ""}}
+    Error(e) -> {{enabled: False({}), craftable: 0, ingredients: [], products: [], error: e}}
+  }
+}
+let resource = (item) -> {
+  match perform InspectResources({item: item, radius: 64}) {
+    Ok(s) -> {
+      let best = !list_fold(s.resources, {amount: 0, x_milli: 0, y_milli: 0}, (r, best) -> {
+        match !int_compare(r.amount, best.amount) {
+          Gt(_) -> {{amount: r.amount, x_milli: r.x_milli, y_milli: r.y_milli}}
+          | (_) -> {best}
+        }
+      })
+      {best: best, truncated: s.truncated, error: ""}
+    }
+    Error(e) -> {{best: {amount: 0, x_milli: 0, y_milli: 0}, truncated: False({}), error: e}}
+  }
+}
+{
+  drill: recipe("burner-mining-drill"),
+  furnace: recipe("stone-furnace"),
+  inserter: recipe("burner-inserter"),
+  chest: recipe("iron-chest"),
+  stone: resource("stone"),
+  coal: resource("coal")
+}

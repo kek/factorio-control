@@ -1,0 +1,4 @@
+match perform Craft({recipe: "iron-chest", count: 4, timeout_ticks: 600}) {
+  Ok(receipt) -> {{success: True({}), crafted: receipt.count, error: ""}}
+  Error(reason) -> {{success: False({}), crafted: 0, error: reason}}
+}

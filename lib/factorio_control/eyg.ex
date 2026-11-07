@@ -74,6 +74,14 @@ defmodule FactorioControl.Eyg do
                 y_milli: int,
                 amount: int,
                 status: text,
+                has_pickup: scalar("boolean"),
+                pickup_x_milli: int,
+                pickup_y_milli: int,
+                pickup_target: text,
+                has_drop: scalar("boolean"),
+                drop_x_milli: int,
+                drop_y_milli: int,
+                drop_target: text,
                 inventory: list(stack),
                 fuel: list(stack),
                 input: list(stack),
@@ -102,9 +110,37 @@ defmodule FactorioControl.Eyg do
             version: text
           )
         ),
+      "InspectRecipe" =>
+        contract(
+          record(name: text),
+          record(
+            tick: int,
+            recipe:
+              record(
+                name: text,
+                enabled: scalar("boolean"),
+                categories: list(text),
+                time_milli: int,
+                craftable: int,
+                ingredients: list(record(name: text, type: text, amount_milli: int)),
+                products:
+                  list(
+                    record(
+                      name: text,
+                      type: text,
+                      min_milli: int,
+                      max_milli: int,
+                      probability_milli: int
+                    )
+                  )
+              )
+          )
+        ),
+      "Craft" => contract(record(recipe: text, count: int, timeout_ticks: int), receipt),
       "WalkTo" => contract(record(position: position, timeout_ticks: int), receipt),
       "Mine" =>
         contract(record(position: position, item: text, count: int, timeout_ticks: int), receipt),
+      "Rotate" => contract(record(name: text, position: position, direction: text), receipt),
       "Build" => contract(record(position: position, item: text, direction: text), receipt),
       "Transfer" =>
         contract(
@@ -137,7 +173,7 @@ defmodule FactorioControl.Eyg do
     call = fn method, args ->
       # Record the attempt before calling the game: a handler can time out while
       # the request is in flight, before an acceptance receipt is available.
-      if method in [:walk_to, :mine],
+      if method in [:walk_to, :mine, :craft],
         do: emit.(%{type: "action_submission", method: to_string(method)})
 
       result = raw_call.(method, args)
@@ -207,7 +243,7 @@ defmodule FactorioControl.Eyg do
         :unconfirmed
 
       %{type: "game_receipt", method: method, result: %{response: %{"ok" => false}}}, pending
-      when method in ["walk_to", "mine"] and not is_nil(pending) ->
+      when method in ["walk_to", "mine", "craft"] and not is_nil(pending) ->
         nil
 
       %{
@@ -216,7 +252,7 @@ defmodule FactorioControl.Eyg do
         result: %{response: %{"ok" => true, "data" => %{"id" => id}}}
       },
       pending
-      when method in ["walk_to", "mine"] and not is_nil(pending) ->
+      when method in ["walk_to", "mine", "craft"] and not is_nil(pending) ->
         {:accepted, id}
 
       %{
@@ -309,6 +345,14 @@ defmodule FactorioControl.Eyg do
            "y_milli" => milli(e["position"]["y"]),
            "amount" => e["amount"] || 0,
            "status" => e["status_name"] || "not_applicable",
+           "has_pickup" => not is_nil(e["pickup_position"]),
+           "pickup_x_milli" => coordinate(e["pickup_position"], "x"),
+           "pickup_y_milli" => coordinate(e["pickup_position"], "y"),
+           "pickup_target" => e["pickup_target"] || "",
+           "has_drop" => not is_nil(e["drop_position"]),
+           "drop_x_milli" => coordinate(e["drop_position"], "x"),
+           "drop_y_milli" => coordinate(e["drop_position"], "y"),
+           "drop_target" => e["drop_target"] || "",
            "inventory" => stacks(e["inventory"]),
            "fuel" => stacks(e["fuel"]),
            "input" => stacks(e["input"]),
@@ -366,6 +410,57 @@ defmodule FactorioControl.Eyg do
     end
   end
 
+  def handle("InspectRecipe", %{"name" => name}, call, _) do
+    with :ok <- item(name),
+         {:ok, response} <- invoke(call, :inspect_recipe, %{"name" => name}) do
+      r = response["data"]
+
+      ingredients =
+        Enum.map(collection(r["ingredients"]), fn i ->
+          %{
+            "name" => i["name"],
+            "type" => i["type"],
+            "amount_milli" => milli(i["amount"])
+          }
+        end)
+
+      products =
+        Enum.map(collection(r["products"]), fn p ->
+          %{
+            "name" => p["name"],
+            "type" => p["type"],
+            "min_milli" => milli(p["amount"] || p["amount_min"] || 0),
+            "max_milli" => milli(p["amount"] || p["amount_max"] || 0),
+            "probability_milli" => milli(p["probability"] || 1)
+          }
+        end)
+
+      {:ok,
+       %{
+         "tick" => response["tick"],
+         "recipe" => %{
+           "name" => r["name"],
+           "enabled" => r["enabled"],
+           "categories" => collection(r["categories"]),
+           "time_milli" => milli(r["energy"]),
+           "craftable" => r["craftable"],
+           "ingredients" => ingredients,
+           "products" => products
+         }
+       }}
+    end
+  end
+
+  def handle("Craft", %{"recipe" => recipe, "count" => n, "timeout_ticks" => ticks}, call, await)
+      when is_integer(n) and n in 1..100 do
+    with :ok <- item(recipe),
+         :ok <- ticks(ticks),
+         {:ok, response} <-
+           invoke(call, :craft, %{"recipe" => recipe, "count" => n, "timeout_ticks" => ticks}) do
+      await_action(response, await)
+    end
+  end
+
   def handle("WalkTo", %{"position" => pos, "timeout_ticks" => ticks}, call, await) do
     with {:ok, position} <- position(pos),
          :ok <- ticks(ticks),
@@ -393,6 +488,23 @@ defmodule FactorioControl.Eyg do
              "timeout_ticks" => ticks
            }) do
       await_action(response, await)
+    end
+  end
+
+  def handle("Rotate", %{"name" => name, "position" => pos, "direction" => direction}, call, _) do
+    with :ok <- item(name),
+         {:ok, position} <- position(pos),
+         true <- direction in ["north", "east", "south", "west"],
+         {:ok, response} <-
+           invoke(call, :rotate, %{
+             "name" => name,
+             "position" => position,
+             "direction" => direction
+           }) do
+      receipt(response, 0)
+    else
+      false -> {:error, "direction must be north, east, south or west"}
+      other -> other
     end
   end
 
@@ -510,6 +622,8 @@ defmodule FactorioControl.Eyg do
   defp stacks(value), do: Enum.map(collection(value), &Map.take(&1, ["name", "quality", "count"]))
 
   defp milli(value), do: round(value * 1000)
+  defp coordinate(nil, _), do: 0
+  defp coordinate(position, axis), do: milli(position[axis])
 
   defp action_summary(a) do
     pos = a["position"]

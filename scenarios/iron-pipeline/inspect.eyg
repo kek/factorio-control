@@ -1,0 +1,31 @@
+let machine = (name, position) -> {
+ match perform InspectEntity({name: name, position: position}) {
+  Ok(s) -> {{status: s.entity.status, fuel: s.entity.fuel, stored: s.entity.inventory, output: s.entity.output, pickup_target: s.entity.pickup_target, drop_target: s.entity.drop_target, error: ""}}
+  Error(reason) -> {{status: "unavailable", fuel: [], stored: [], output: [], pickup_target: "", drop_target: "", error: reason}}
+ }
+}
+let bot = match perform InspectBot({}) {
+ Ok(s) -> {{inventory: s.bot.inventory, x_milli: s.bot.x_milli, y_milli: s.bot.y_milli}}
+ Error(_) -> {{inventory: [], x_milli: 0, y_milli: 0}}
+}
+{
+ bot: bot,
+ coal_left: machine("burner-mining-drill", {x2: 116, y2: 36}),
+ coal_right: machine("burner-mining-drill", {x2: 120, y2: 36}),
+ drill25: machine("burner-mining-drill", {x2: 50, y2: -84}),
+ furnace25: machine("stone-furnace", {x2: 50, y2: -80}),
+ inserter25: machine("burner-inserter", {x2: 51, y2: -77}),
+ lane25: machine("iron-chest", {x2: 51, y2: -75}),
+ drill29: machine("burner-mining-drill", {x2: 58, y2: -84}),
+ furnace29: machine("stone-furnace", {x2: 58, y2: -80}),
+ inserter29: machine("burner-inserter", {x2: 59, y2: -77}),
+ lane29: machine("iron-chest", {x2: 59, y2: -75}),
+ drill33: machine("burner-mining-drill", {x2: 66, y2: -84}),
+ furnace33: machine("stone-furnace", {x2: 66, y2: -80}),
+ inserter33: machine("burner-inserter", {x2: 67, y2: -77}),
+ lane33: machine("iron-chest", {x2: 67, y2: -75}),
+ drill37: machine("burner-mining-drill", {x2: 74, y2: -84}),
+ furnace37: machine("stone-furnace", {x2: 74, y2: -80}),
+ inserter37: machine("burner-inserter", {x2: 75, y2: -77}),
+ lane37: machine("iron-chest", {x2: 75, y2: -75})
+}

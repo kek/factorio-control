@@ -46,6 +46,8 @@ Success responses are `{ok = true, tick = game.tick, data = ...}`. Errors are `{
 | `inspect` | Optional `radius` (0–64, default 16), `name` entity filter | Position, health, inventory, active action, and up to 200 nearby entity summaries with a truncation flag. Friendly machines include fuel/output; furnaces include input. |
 | `inspect_entity` | `name`, `position` | A single entity lookup on the bot's surface, independent of reach. Friendly entities expose symbolic `status_name`, inventories and machine input/output where applicable; numeric `status` remains available. Missing entities return `not_found`. |
 | `inspect_simulation` | None | Game speed, `tick_paused`, connected player count and base version, without requiring a bot character. |
+| `inspect_recipe` | `name` | Enabled recipe, categories, ingredient/product quantities and directly affordable batches. |
+| `craft` | `recipe`, `count` (1–100), `timeout_ticks` | Timed recipe batches consuming direct ingredients; reports produced item count and stops at completion/deadline. |
 | `walk_to` | `position`, optional `timeout_ticks` (1–3600, default 1800) | Accepts a bounded straight-line walking action. Stops within 0.5 tile or fails at its deadline. No pathfinding yet. |
 | `mine` | Resource `position`, matching output `item`, optional `count` (1–1000, default 1) and `timeout_ticks` | Mines a single resource tile in reach using normal mining progress, until the inventory increases by `count`. Depletion before completion fails with partial count reported. |
 | `action` | `id` | Current or terminal action record; unknown/expired IDs return an error. |
@@ -53,13 +55,13 @@ Success responses are `{ok = true, tick = game.tick, data = ...}`. Errors are `{
 | `build` | `item`, `position`, optional cardinal `direction` | Inventory-backed placement of a starter drill, furnace, wooden chest, transport belt, or burner inserter. Returns the actual entity summary. |
 | `transfer` | `entity` name, `position`, `inventory`, `direction` (`take`/`give`), `item`, `count` (1–1000) | Transfers exactly the requested quantity of normal-quality ordinary items to/from a reachable friendly entity. No transfer on insufficient items or capacity. |
 
-Transfer inventory selectors are `fuel`, `output`, furnace `input`, and chest/character `main`. Stack types with metadata, such as blueprints, are excluded. Higher-quality stacks, fast replacement, ghosts, blueprints, arbitrary prototypes, crafting, and entity removal are outside the current gameplay API.
+Transfer inventory selectors are `fuel`, `output`, furnace `input`, and chest/character `main`. Stack types with metadata, such as blueprints, are excluded. Higher-quality stacks, fast replacement, ghosts, blueprints, arbitrary prototypes, and entity removal are outside the current gameplay API.
 
 Building checks the supported item and its `place_result`, inventory, distance, grid alignment, character placement rules and surface collision rules before creation. Odd tile widths require half-integer coordinates; even widths require integers. Supported entities have square footprints. The item is consumed only after entity creation succeeds; failed removal destroys the newly created entity. The implementation uses validated `create_entity`, rather than promising equivalence with every player event/undo behavior. Other gameplay mods have not been tested.
 
 ## Action lifecycle and persistence
 
-The mod stores the bot, sequence counter, active action, and the latest 64 action records in its own Factorio `storage`. One walk or mine action can run at once. Other mutations reject requests while it runs; inspection, status queries, and stopping remain available.
+The mod stores the bot, sequence counter, active action, and the latest 64 action records in its own Factorio `storage`. One walk, mine or craft action can run at once. Other mutations reject requests while it runs; inspection, status queries, and stopping remain available.
 
 Actions transition from `running` to `completed`, `failed`, or `cancelled`. Records include ID, kind, start/deadline ticks, finish tick when terminal, and error details when failed. Mine actions report the collected count. Death/removal fails the active action. `on_tick` work is bounded: update movement or mining state, check progress/deadline, and clear state on completion. It performs no broad world scans.
 
@@ -103,7 +105,8 @@ granting any mutations:
 
 `InspectBot` and `InspectResources` use the existing bounded `inspect` method;
 the resource query applies a name filter before the 200-entity limit.
-`InspectEntity` uses the dedicated single-entity mod lookup. It can inspect
+`InspectEntity` uses the dedicated single-entity mod lookup. Inserters and drills also expose pickup/drop positions
+and target names for checking material flow. It can inspect
 known locations anywhere on the bot's current surface, matching the earlier
 administrator diagnostics, but cannot execute arbitrary Lua. Inventories are
 exposed only for friendly entities: character/chest main inventory, machine
@@ -136,6 +139,8 @@ operations; `count:0` where not applicable):
 | --- | --- |
 | `WalkTo` | `{position:{x2,y2},timeout_ticks}` |
 | `Mine` | `{position:{x2,y2},item,count,timeout_ticks}` |
+| `Rotate` | `{name,position,direction}`; cardinal orientation, friendly reachable starter drills/inserters/belts |
+| `Craft` | `{recipe,count,timeout_ticks}`; 1–100 batches, explicit intermediate crafts |
 | `Build` | `{position:{x2,y2},item,direction}`; direction is `north/east/south/west` |
 | `Transfer` | `{position:{x2,y2},entity,inventory,direction,item,count}` |
 | `Wait` | `{ticks}` |
@@ -147,7 +152,7 @@ components are limited to ±2,000,000; counts to 1–1000; durations to 1–3600
 ticks; names to 100 UTF-8 bytes. The mod retains its stricter gameplay checks.
 There is no spawn/respawn effect or administrator Lua escape hatch.
 
-`WalkTo` and `Mine` submit once, then poll the accepted action ID through
+`WalkTo`, `Mine` and `Craft` submit once, then poll the accepted action ID through
 `Bot.await`. They resume the EYG continuation only after a terminal result.
 Confirmed game rejection or failed/cancelled actions return catchable `Error`;
 raw game/action receipts retain partial progress. Transport loss, unknown action
@@ -162,7 +167,7 @@ action's in-game tick deadline. A paused game can reach a wall deadline without
 advancing its simulation deadline.
 
 The host kills its disposable Node worker at completion, timeout or host-process
-death. A host-submitted walk/mine action that lacks a confirmed rejection or
+death. A host-submitted walk/mine/craft action that lacks a confirmed rejection or
 matching terminal receipt on a returned host failure triggers one best-effort
 `stop` through the same connection, recorded separately. A worker request alone
 does not establish that an action was submitted. It does
@@ -196,7 +201,7 @@ furnace successfully collected the plates and observed new output grow from 1
 to 2. The interpreter process still has
 OS permissions; this is an effect interface, not a hardened hostile-code sandbox.
 
-Further gameplay work includes crafting, asynchronous pathfinding, richer
+Further gameplay work includes asynchronous pathfinding, richer
 resource queries and construction-robot workflows. Verify new game APIs against
 the pinned Factorio release before adding them.
 
@@ -205,3 +210,40 @@ the pinned Factorio release before adding them.
 Mods run in deterministic lockstep and cannot read network or file input. Commands arrive through RCON; output can use `rcon.print` or `script-output` files via `helpers.write_file`. Heavy per-tick work reduces UPS. Potential metrics options include Graftorio-style file export to Prometheus and `--benchmark-verbose` timings; these have not been integrated.
 
 The Factorio Learning Environment (FLE, NeurIPS 2025) is a research lead, reported to offer a Python REPL API over RCON with MCP support and to target Factorio 1.1.110. Its compatibility and findings have not been independently checked here. Candidate higher-level primitives include belt connections and nearest-resource queries. Reported FLE findings favor good primitives, textual state and self-correction over vision; investigate them when designing the model's state and effects.
+
+## Recipe-driven crafting
+
+`InspectRecipe({name})` returns `tick` and a recipe with `name`, `enabled`,
+`categories`, `time_milli`, `craftable`, ingredient quantities, and product
+quantity/probability ranges in integer thousandths. `craftable` counts only
+batches affordable from direct normal-quality ingredients; it does not assume
+recursive ingredient crafting.
+
+`Craft({recipe,count,timeout_ticks})` accepts an asynchronous action and waits
+through the same action lifecycle as walking/mining. The count is 1–100 recipe
+batches; terminal receipts count actual output items. The mod restricts recipes
+to enabled `crafting` categories, integer item inputs, and a single guaranteed
+ordinary item result. It checks all ingredients and output capacity before
+starting. No fluids, metadata stacks, probabilistic outputs or item grants are
+supported.
+
+The initial native approach encountered a player-only API on the standalone
+character. The current effect implements recipe-driven crafting in the mod:
+one recipe execution completes after its base energy × 60
+ticks. At that tick the mod rechecks ingredients/capacity, consumes that batch's
+inputs and inserts exactly its output. Unfinished batches have consumed nothing,
+so cancellation or timeout needs no refund. Player crafting-speed bonuses and
+native recursive crafting are not applied. Completed counts and remaining
+materials persist through save/load in the existing mod storage.
+
+Game tasks must use only EYG effects, including planning observations. See
+`AGENTS.md` for that workflow and synchronized mod deployment rules. The staged
+programs under `scenarios/iron-pipeline/` construct and verify the physical starter
+pipeline without administrator Lua or generated materials.
+
+The iron pipeline's inserters require `north` to pick up from the furnace and
+place into the chest south of the arm. This was checked with actual pickup/drop
+targets, rather than inferred from mining-drill orientation. `Rotate` changes
+only a reachable friendly supported entity's cardinal direction; it neither
+creates an entity nor retries an uncertain change. `service.eyg` uses this effect
+and inventory inspections to restore flow and top up fuel from the coal station.

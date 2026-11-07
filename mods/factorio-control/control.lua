@@ -8,7 +8,8 @@ local directions = {
 }
 local buildable = {
   ["burner-mining-drill"] = true, ["stone-furnace"] = true,
-  ["wooden-chest"] = true, ["transport-belt"] = true, ["burner-inserter"] = true
+  ["wooden-chest"] = true, ["iron-chest"] = true,
+  ["transport-belt"] = true, ["burner-inserter"] = true
 }
 local status_names = {}
 for name, value in pairs(defines.entity_status) do status_names[value] = name end
@@ -90,6 +91,14 @@ end
 local function entity_summary(e)
   local out = {name = e.name, type = e.type, position = e.position, unit_number = e.unit_number}
   if e.type == "resource" then out.amount = e.amount end
+  if e.type == "inserter" then
+    out.pickup_position = e.pickup_position
+    out.pickup_target = e.pickup_target and e.pickup_target.name
+  end
+  if e.type == "inserter" or e.type == "mining-drill" then
+    out.drop_position = e.drop_position
+    out.drop_target = e.drop_target and e.drop_target.name
+  end
   if e.force.name == character().force.name then
     if e.type == "character" then out.inventory = contents(e.get_main_inventory()) end
     if e.type == "container" then out.inventory = contents(e.get_inventory(defines.inventory.chest)) end
@@ -156,6 +165,50 @@ function methods.inspect_simulation(_args)
     connected_players = #game.connected_players, version = script.active_mods.base}
 end
 
+local function craftable_count(c, r)
+  if not r.enabled or not r.has_category("crafting") or #r.ingredients == 0 then return 0 end
+  local available = 2147483647
+  for _, i in pairs(r.ingredients) do
+    if i.type ~= "item" or i.amount <= 0 or i.amount ~= math.floor(i.amount) then return 0 end
+    available = math.min(available, math.floor(c.get_item_count{name = i.name, quality = "normal"} / i.amount))
+  end
+  return available
+end
+
+function methods.inspect_recipe(args)
+  local c = character()
+  check(type(args.name) == "string", "invalid_argument", "Recipe name is required")
+  local r = c.force.recipes[args.name]
+  check(r, "not_found", "Unknown recipe")
+  return {name = r.name, enabled = r.enabled, categories = r.categories, energy = r.energy,
+    ingredients = r.ingredients, products = r.products, craftable = craftable_count(c, r)}
+end
+
+function methods.craft(args)
+  idle()
+  local c = character()
+  check(type(args.recipe) == "string", "invalid_argument", "Recipe name is required")
+  local r = c.force.recipes[args.recipe]
+  check(r and r.enabled and r.has_category("crafting"), "invalid_recipe", "Recipe is unknown, locked or not hand-craftable")
+  local n = integer(args.count or 1, "count", 1, 100)
+  local products = r.products
+  check(#products == 1 and products[1].type == "item" and products[1].amount
+    and products[1].amount == math.floor(products[1].amount)
+    and (not products[1].probability or products[1].probability == 1)
+    and prototypes.item[products[1].name].type == "item",
+    "unsupported_recipe", "Crafting requires a single guaranteed ordinary item product")
+  check(craftable_count(c, r) >= n, "not_craftable", "Missing ingredients; craft intermediate items explicitly first")
+  local product = products[1]
+  check(c.get_main_inventory().get_insertable_count{name = product.name, quality = "normal"} >= n * product.amount,
+    "inventory_full", "Not enough room for crafted items")
+  local a = start("craft", args)
+  a.item, a.per_craft, a.requested = product.name, product.amount, n
+  a.ingredients, a.completed, a.count = r.ingredients, 0, 0
+  a.duration = math.max(1, math.ceil(r.energy * 60))
+  a.next_tick = game.tick + a.duration
+  return public_action(a)
+end
+
 function methods.walk_to(args)
   character()
   local pos = position(args.position)
@@ -200,7 +253,7 @@ function methods.build(args)
   idle()
   local c = character()
   local item = args.item
-  check(type(item) == "string" and buildable[item], "unsupported_item", "Supported: starter drill, furnace, chest, belt, burner inserter")
+  check(type(item) == "string" and buildable[item], "unsupported_item", "Supported: starter drill, furnace, wooden/iron chest, belt, burner inserter")
   local proto = prototypes.item[item]
   check(proto and proto.place_result, "unsupported_item", "Item has no placeable entity")
   local pos = position(args.position)
@@ -229,6 +282,23 @@ function methods.build(args)
     e.destroy()
     fail("no_item", "Could not consume building item")
   end
+  return entity_summary(e)
+end
+
+function methods.rotate(args)
+  idle()
+  local c = character()
+  check(type(args.name) == "string" and buildable[args.name], "unsupported_item", "Unsupported entity")
+  local pos = position(args.position)
+  local e = c.surface.find_entity(args.name, pos)
+  check(e and e.valid and e.force == c.force, "invalid_target", "Expected a friendly entity")
+  check(e.type == "inserter" or e.type == "mining-drill" or e.type == "transport-belt",
+    "unsupported_item", "Only starter inserters, drills and belts can be rotated")
+  check(c.can_reach_entity(e), "out_of_reach", "Entity is out of reach")
+  local name = args.direction
+  check(name == "north" or name == "east" or name == "south" or name == "west",
+    "invalid_argument", "Direction must be cardinal")
+  e.direction = directions[name]
   return entity_summary(e)
 end
 
@@ -284,6 +354,24 @@ local function tick()
     local horizontal = math.abs(dx) > 0.2 and (dx > 0 and "east" or "west") or ""
     local vertical = math.abs(dy) > 0.2 and (dy > 0 and "south" or "north") or ""
     c.walking_state = {walking = true, direction = directions[vertical .. horizontal]}
+  elseif a.kind == "craft" then
+    if game.tick < a.next_tick then return end
+    for _, i in pairs(a.ingredients) do
+      if c.get_item_count{name = i.name, quality = "normal"} < i.amount then
+        finish("failed", "not_craftable", "An ingredient was removed during crafting") return
+      end
+    end
+    if c.get_main_inventory().get_insertable_count{name = a.item, quality = "normal"} < a.per_craft then
+      finish("failed", "inventory_full", "Crafted items no longer fit") return
+    end
+    -- One atomic recipe execution per completion tick. Unfinished crafts have
+    -- not consumed ingredients, so cancellation and deadlines need no refunds.
+    for _, i in pairs(a.ingredients) do c.remove_item{name = i.name, quality = "normal", count = i.amount} end
+    c.insert{name = a.item, quality = "normal", count = a.per_craft}
+    a.completed = a.completed + 1
+    a.count = a.completed * a.per_craft
+    if a.completed == a.requested then finish("completed")
+    else a.next_tick = game.tick + a.duration end
   elseif a.kind == "mine" then
     a.count = math.max(0, c.get_item_count{name = a.item, quality = "normal"} - a.initial)
     if a.count >= a.requested then finish("completed") return end

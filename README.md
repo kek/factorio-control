@@ -2,7 +2,7 @@
 
 An Elixir host controls a character on a headless Factorio server through a small Lua mod. EYG programs can use the same constrained gameplay interface through an Elixir effect host and a shared, Pi-independent evaluator.
 
-**Status:** working prototype on **Factorio 2.1.24**. RCON, inspection, walking, mining, placement, inventory transfers, and iron production have been exercised on the local server. The EYG coal-to-iron program has also passed on the live server, including a depleted coal tile and a full furnace output. Crafting and pathfinding remain future work.
+**Status:** working prototype on **Factorio 2.1.24**. RCON, inspection, walking, mining, placement, inventory transfers, and iron production have been exercised on the local server. The EYG coal-to-iron program has also passed on the live server, including a depleted coal tile and a full furnace output. Recipe-driven crafting is available; pathfinding remains future work.
 
 ## Run locally
 
@@ -125,7 +125,7 @@ reported `before`/`after` counts describe furnace output after collecting the ol
 plates; collected plates remain in the bot inventory.
 
 `--effects` is the host's capability selection, checked before evaluation; the
-program cannot add effects. Omit it to enable all twelve effects, including the
+program cannot add effects. Omit it to enable all fifteen effects, including the
 read-only inspections below.
 `--worker`, `--timeout` (milliseconds, default 300000, maximum 600000),
 `--max-effects` (default/maximum 100), `--host`, `--port` and `--trace` are
@@ -172,3 +172,71 @@ the diagnostic's coal sum covers only observed tiles and is incomplete if
 `truncated` is true. Missing entities and expired action IDs return errors.
 The explicit `tick_paused` flag is not a substitute for observing tick advancement
 when diagnosing server auto-pause.
+
+## Agent gameplay and the iron pipeline
+
+Agents inspect and control the world exclusively through EYG effects. If an
+operation is missing, extend and test its typed host/mod capability first. Direct
+RCON/Lua or Bot API calls are not a gameplay or planning fallback. Mod deployment
+and Port-owned server lifecycle operations are separate from gameplay.
+
+`Craft({recipe,count,timeout_ticks})` crafts 1–100 batches of an unlocked recipe
+with a single guaranteed ordinary item output. `InspectRecipe({name})` exposes
+categories, ingredient quantities, products, base crafting time and the number
+of batches affordable from **directly available normal-quality ingredients**.
+Craft intermediate items explicitly. This implementation uses a mod-owned crafting action rather than a player
+hand-crafting queue; it enforces base recipe time and consumes the direct
+ingredients only when each batch completes. Stop/timeout preserves completed
+items and consumes nothing for unfinished batches. The receipt count is produced
+items, which may differ from the requested batch count (for example belts).
+
+`InspectEntity` also exposes pickup/drop positions and target entity names for
+inserters and mining drills. `Build` supports iron chests as well as the existing
+starter buildings. `Rotate({name,position,direction})` sets a reachable friendly
+starter inserter, drill or belt to an absolute cardinal direction. The output
+inserters in this layout use `north`: their pickup is from the furnace above
+and their drop goes into the chest below, verified through connection inspection.
+
+The EYG files in `scenarios/iron-pipeline/` implement this save's starter pipeline:
+
+- `plan.eyg`: inspect recipes and resources.
+- `craft-chests.eyg`: craft four iron storage chests.
+- `prepare.eyg`: mine 40 stone, craft furnaces/gears, build two mutually fueling
+  coal drills at `(58,18)` and `(60,18)`.
+- `fuel.eyg`: mine uncovered coal and collect drill surplus, retaining fuel in both.
+- `build.eyg`: craft the remaining equipment, reuse the POC iron lane, and build
+  four drill → furnace → burner inserter → chest lanes at x=25,29,33,37.
+- `service.eyg`: collect coal-station surplus, set output inserters to the correct
+  direction, and replenish missing drill/furnace/inserter fuel.
+- `verify.eyg`: observe each output chest over 1,200 ticks and require growth on
+  all four lanes.
+- `inspect.eyg`: read-only inspection of the completed setup and coal station.
+
+These are **staged, save-specific construction programs**, not automatic retries
+or a fresh-save bootstrap. Do not rerun completed crafting/build stages blindly;
+inspect the world and inventory first. After construction the machines handle
+ore, smelting and output transfer independently. Burner equipment still needs
+coal replenishment; the coal station supplies a stock for that purpose.
+
+The mod's crafting lifecycle can also be checked without the game:
+
+```sh
+lua test/lua/crafting_test.lua
+```
+
+This additional test requires Lua 5.4 and checks material costs, timing,
+cancellation, deadlines, inventory capacity and recipe restrictions.
+
+The completed live setup was verified through EYG: each of the four output
+chests gained 16 plates over 1,200 ticks, and all drills, furnaces and output
+inserters reported working. The coal drills feed one another automatically.
+To inspect or service this existing setup (with the usual RCON and worker
+environment set):
+
+```sh
+mix factorio.eyg --effects InspectBot,InspectEntity scenarios/iron-pipeline/inspect.eyg
+mix factorio.eyg --effects WalkTo,Rotate,InspectEntity,Transfer scenarios/iron-pipeline/service.eyg
+```
+
+Servicing is a bounded EYG run, not a background daemon; the iron burners still
+need periodic coal delivery. Inspect coal stocks before rerunning maintenance.

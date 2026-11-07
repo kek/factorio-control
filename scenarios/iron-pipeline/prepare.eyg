@@ -1,0 +1,18 @@
+// Each operation is a typed host effect. No administrator Lua is used.
+let bind = (result, next) -> {match result {Ok(value) -> {next(value)} Error(reason) -> {Error(reason)}}}
+let unit = (result) -> {bind(result, (_) -> {Ok({})})}
+let sequence = (steps) -> {!list_fold(steps, Ok({}), (step, result) -> {bind(result, step)})}
+match sequence([
+  (_) -> {unit(perform WalkTo({position: {x2: 58, y2: -68}, timeout_ticks: 1800}))},
+  (_) -> {unit(perform WalkTo({position: {x2: 19, y2: -81}, timeout_ticks: 1800}))},
+  (_) -> {unit(perform Mine({position: {x2: 19, y2: -81}, item: "stone", count: 20, timeout_ticks: 3600}))},
+  (_) -> {unit(perform Mine({position: {x2: 19, y2: -81}, item: "stone", count: 20, timeout_ticks: 3600}))},
+  (_) -> {unit(perform Craft({recipe: "stone-furnace", count: 8, timeout_ticks: 1800}))},
+  (_) -> {unit(perform Craft({recipe: "iron-gear-wheel", count: 19, timeout_ticks: 1800}))},
+  (_) -> {unit(perform Craft({recipe: "burner-mining-drill", count: 2, timeout_ticks: 1800}))},
+  (_) -> {unit(perform WalkTo({position: {x2: 112, y2: 42}, timeout_ticks: 1800}))},
+  (_) -> {unit(perform Build({position: {x2: 116, y2: 36}, item: "burner-mining-drill", direction: "east"}))},
+  (_) -> {unit(perform Build({position: {x2: 120, y2: 36}, item: "burner-mining-drill", direction: "west"}))},
+  (_) -> {unit(perform Transfer({position: {x2: 116, y2: 36}, entity: "burner-mining-drill", inventory: "fuel", direction: "give", item: "coal", count: 7}))},
+  (_) -> {unit(perform Transfer({position: {x2: 120, y2: 36}, entity: "burner-mining-drill", inventory: "fuel", direction: "give", item: "coal", count: 7}))}
+]) {Ok(_) -> {{success: True({}), error: ""}} Error(reason) -> {{success: False({}), error: reason}}}

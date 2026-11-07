@@ -1,0 +1,45 @@
+// Collect surplus coal, correct output orientation, and top up existing lanes.
+let bind = (result, next) -> {match result {Ok(value) -> {next(value)} Error(reason) -> {Error(reason)}}}
+let unit = (result) -> {bind(result, (_) -> {Ok({})})}
+let sequence = (steps) -> {!list_fold(steps, Ok({}), (step, result) -> {bind(result, step)})}
+let coal_count = (stacks) -> {!list_fold(stacks, 0, (stack, n) -> {
+ match !equal(stack.name, "coal") {True(_) -> {!int_add(n, stack.count)} | (_) -> {n}}
+})}
+let collect = (position) -> {
+ bind(perform InspectEntity({name: "burner-mining-drill", position: position}), (s) -> {
+  let available = coal_count(s.entity.fuel)
+  match !int_compare(available, 5) {
+   Gt(_) -> {unit(perform Transfer({position: position, entity: "burner-mining-drill", inventory: "fuel", direction: "take", item: "coal", count: !int_subtract(available, 5)}))}
+   | (_) -> {Ok({})}
+  }
+ })
+}
+let top_up = (name, position, target) -> {
+ bind(perform InspectEntity({name: name, position: position}), (s) -> {
+  let available = coal_count(s.entity.fuel)
+  match !int_compare(available, target) {
+   Lt(_) -> {unit(perform Transfer({position: position, entity: name, inventory: "fuel", direction: "give", item: "coal", count: !int_subtract(target, available)}))}
+   | (_) -> {Ok({})}
+  }
+ })
+}
+let lane = (x) -> {
+ let x2 = !int_multiply(x, 2)
+ let stage = match !int_compare(x, 30) {Lt(_) -> {!int_subtract(x, 2)} | (_) -> {!int_add(x, 2)}}
+ sequence([
+  (_) -> {unit(perform WalkTo({position: {x2: !int_multiply(stage, 2), y2: -70}, timeout_ticks: 1800}))},
+  (_) -> {unit(perform WalkTo({position: {x2: !int_multiply(stage, 2), y2: -76}, timeout_ticks: 1800}))},
+  (_) -> {unit(perform Rotate({name: "burner-inserter", position: {x2: !int_add(x2, 1), y2: -77}, direction: "north"}))},
+  (_) -> {top_up("burner-mining-drill", {x2: x2, y2: -84}, 18)},
+  (_) -> {top_up("stone-furnace", {x2: x2, y2: -80}, 10)},
+  (_) -> {top_up("burner-inserter", {x2: !int_add(x2, 1), y2: -77}, 3)}
+ ])
+}
+let job = sequence([
+ (_) -> {unit(perform WalkTo({position: {x2: 112, y2: 42}, timeout_ticks: 1800}))},
+ (_) -> {collect({x2: 116, y2: 36})},
+ (_) -> {collect({x2: 120, y2: 36})},
+ (_) -> {unit(perform WalkTo({position: {x2: 58, y2: -68}, timeout_ticks: 1800}))},
+ (_) -> {lane(25)}, (_) -> {lane(29)}, (_) -> {lane(33)}, (_) -> {lane(37)}
+])
+match job {Ok(_) -> {{success: True({}), error: ""}} Error(reason) -> {{success: False({}), error: reason}}}

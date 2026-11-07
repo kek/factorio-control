@@ -1,0 +1,43 @@
+// Each operation is a typed host effect. No administrator Lua is used.
+let bind = (result, next) -> {match result {Ok(value) -> {next(value)} Error(reason) -> {Error(reason)}}}
+let unit = (result) -> {bind(result, (_) -> {Ok({})})}
+let sequence = (steps) -> {!list_fold(steps, Ok({}), (step, result) -> {bind(result, step)})}
+let half_tile = (n) -> {match !int_divide(n, 500) {Ok(x) -> {x} Error(_) -> {0}}}
+let select = (resources) -> {
+ !list_fold(resources, {amount: 0, position: {x2: 0, y2: 0}}, (r, best) -> {
+  match !int_compare(r.y_milli, 20500) {
+   Lt(_) -> {best}
+   | (_) -> {match !int_compare(r.amount, best.amount) {
+    Gt(_) -> {{amount: r.amount, position: {x2: half_tile(r.x_milli), y2: half_tile(r.y_milli)}}}
+    | (_) -> {best}
+   }}
+  }
+ })
+}
+let collect = (position) -> {
+ bind(perform InspectEntity({name: "burner-mining-drill", position: position}), (s) -> {
+  let available = !list_fold(s.entity.fuel, 0, (stack, n) -> {
+   match !equal(stack.name, "coal") {True(_) -> {!int_add(n, stack.count)} | (_) -> {n}}
+  })
+  match !int_compare(available, 5) {
+   Gt(_) -> {unit(perform Transfer({position: position, entity: "burner-mining-drill", inventory: "fuel", direction: "take", item: "coal", count: !int_subtract(available, 5)}))}
+   | (_) -> {Ok({})}
+  }
+ })
+}
+let job = bind(perform InspectResources({item: "coal", radius: 16}), (s) -> {
+ let target = select(s.resources)
+ match !int_compare(target.amount, 60) {
+  Lt(_) -> {Error("No unoccupied coal tile with 60 coal was observed")}
+  | (_) -> {sequence([
+   (_) -> {unit(perform WalkTo({position: target.position, timeout_ticks: 1800}))},
+   (_) -> {unit(perform Mine({position: target.position, item: "coal", count: 20, timeout_ticks: 3600}))},
+   (_) -> {unit(perform Mine({position: target.position, item: "coal", count: 20, timeout_ticks: 3600}))},
+   (_) -> {unit(perform Mine({position: target.position, item: "coal", count: 20, timeout_ticks: 3600}))},
+   (_) -> {unit(perform WalkTo({position: {x2: 112, y2: 42}, timeout_ticks: 1800}))},
+   (_) -> {collect({x2: 116, y2: 36})},
+   (_) -> {collect({x2: 120, y2: 36})}
+  ])}
+ }
+})
+match job {Ok(_) -> {{success: True({}), error: ""}} Error(reason) -> {{success: False({}), error: reason}}}
