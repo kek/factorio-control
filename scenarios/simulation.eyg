@@ -1,0 +1,4 @@
+match perform InspectSimulation({}) {
+  Ok(snapshot) -> {{success: True({}), tick: snapshot.tick, speed_milli: snapshot.speed_milli, tick_paused: snapshot.tick_paused, connected_players: snapshot.connected_players, version: snapshot.version, error: ""}}
+  Error(reason) -> {{success: False({}), tick: 0, speed_milli: 0, tick_paused: False({}), connected_players: 0, version: "", error: reason}}
+}
