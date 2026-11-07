@@ -61,7 +61,7 @@ defmodule FactorioControl.Eyg.Worker do
     after
       if Port.info(port) do
         kill(pid)
-        Port.close(port)
+        close_port(port)
       end
 
       send(guard, :finished)
@@ -245,6 +245,13 @@ defmodule FactorioControl.Eyg.Worker do
 
   defp failure(reason, trace), do: {:error, reason, Enum.reverse(trace)}
   defp now, do: System.monotonic_time(:millisecond)
+
+  defp close_port(port) do
+    Port.close(port)
+  rescue
+    # Killing the OS worker can close its Port before this call runs.
+    ArgumentError -> :ok
+  end
 
   defp kill(pid) do
     System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)

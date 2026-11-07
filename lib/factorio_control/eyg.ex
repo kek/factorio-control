@@ -59,6 +59,11 @@ defmodule FactorioControl.Eyg do
     end
 
     call = fn method, args ->
+      # Record the attempt before calling the game: a handler can time out while
+      # the request is in flight, before an acceptance receipt is available.
+      if method in [:walk_to, :mine],
+        do: emit.(%{type: "action_submission", method: to_string(method)})
+
       result = raw_call.(method, args)
 
       if method != :inspect,
@@ -98,18 +103,11 @@ defmodule FactorioControl.Eyg do
         opts
       )
 
-    # Only an unfinished action from this run may trigger cancellation. A
-    # rejected read-only program must never mutate the world during cleanup.
+    # Only host-side submissions can trigger cancellation. Worker requests alone
+    # are not evidence that a permitted action reached the game.
     case result do
       {:error, _, trace} ->
-        pending =
-          Enum.reduce(trace, nil, fn
-            %{"type" => "effect-request", "effect" => effect}, _ -> effect
-            %{"type" => "effect-response"}, _ -> nil
-            _, pending -> pending
-          end)
-
-        if pending in ["WalkTo", "Mine"] do
+        if unfinished_action?(trace) do
           cleanup =
             try do
               raw_call.(:stop, %{})
@@ -125,6 +123,38 @@ defmodule FactorioControl.Eyg do
       _ ->
         result
     end
+  end
+
+  defp unfinished_action?(trace) do
+    Enum.reduce(trace, nil, fn
+      %{type: "action_submission"}, _ ->
+        :unconfirmed
+
+      %{type: "game_receipt", method: method, result: %{response: %{"ok" => false}}}, pending
+      when method in ["walk_to", "mine"] and not is_nil(pending) ->
+        nil
+
+      %{
+        type: "game_receipt",
+        method: method,
+        result: %{response: %{"ok" => true, "data" => %{"id" => id}}}
+      },
+      pending
+      when method in ["walk_to", "mine"] and not is_nil(pending) ->
+        {:accepted, id}
+
+      %{
+        type: "action_receipt",
+        action_id: id,
+        result: %{response: %{"ok" => true, "data" => %{"id" => id, "status" => status}}}
+      },
+      {:accepted, id}
+      when status in ["completed", "failed", "cancelled"] ->
+        nil
+
+      _, pending ->
+        pending
+    end) != nil
   end
 
   defp append_cleanup({tag, result, trace}, cleanup, opts) do

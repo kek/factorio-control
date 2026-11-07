@@ -121,15 +121,17 @@ action's in-game tick deadline. A paused game can reach a wall deadline without
 advancing its simulation deadline.
 
 The host kills its disposable Node worker at completion, timeout or host-process
-death. An incomplete walk/mine effect on a returned host failure triggers one
-best-effort `stop` through the same connection, recorded separately. It does
+death. A host-submitted walk/mine action that lacks a confirmed rejection or
+matching terminal receipt on a returned host failure triggers one best-effort
+`stop` through the same connection, recorded separately. A worker request alone
+does not establish that an action was submitted. It does
 not reconnect, retry the action, undo a build/transfer, or establish that an
 uncertain mutation did not occur. A typecheck/read-only failure performs no
 cleanup mutation. Abrupt VM/application death may prevent cleanup; the mod's
 tick deadline remains the fallback. Concurrent controllers are unsupported.
 
 The CLI exclusively creates a private NDJSON trace and flushes requests,
-acceptance receipts, terminal receipts and replies. Confirmed receipts also
+host submission attempts, acceptance receipts, terminal receipts and replies. Confirmed receipts also
 survive a worker/handler failure in the returned trace. Source hashes and worker
 paths aid audit but do not pin a save, runtime or mod version. Durable
 continuations, deterministic world replay, plan approvals, request deduplication

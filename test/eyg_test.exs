@@ -11,6 +11,31 @@ defmodule FactorioControl.EygTest do
   defp options(extra), do: Keyword.merge([worker: @worker, timeout: 5000], extra)
   defp ok(data, tick \\ 1), do: {:ok, %{"ok" => true, "tick" => tick, "data" => data}}
 
+  # Bypass evaluator typechecking to exercise the host's own grant boundary.
+  defp scripted_worker(requests) do
+    path = Path.join(System.tmp_dir!(), "eyg-requests-#{System.unique_integer([:positive])}.mjs")
+
+    File.write!(path, """
+    const requests = #{JSON.encode!(requests)};
+    let pending = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', chunk => {
+      pending += chunk;
+      let end;
+      while ((end = pending.indexOf('\\n')) >= 0) {
+        const frame = JSON.parse(pending.slice(0, end));
+        pending = pending.slice(end + 1);
+        if (frame.type === 'start' || frame.type === 'effect-response') {
+          console.log(JSON.stringify({version:1, type:'effect-request', ...requests.shift()}));
+        }
+      }
+    });
+    """)
+
+    on_exit(fn -> File.rm(path) end)
+    path
+  end
+
   defp world(count \\ 41) do
     %{
       "inventory" => %{},
@@ -37,6 +62,55 @@ defmodule FactorioControl.EygTest do
              )
 
     assert error =~ "type check"
+  end
+
+  for effect <- ["WalkTo", "Mine"] do
+    test "an unapproved #{effect} worker request cannot mutate a read-only run during cleanup" do
+      owner = self()
+      worker = scripted_worker([%{id: 1, effect: unquote(effect), argument: %{}}])
+
+      assert {:error, :unapproved_effect, trace} =
+               Eyg.run(nil, "1",
+                 worker: worker,
+                 effects: ["Inspect"],
+                 call: fn method, _ ->
+                   send(owner, {:game_called, method})
+                   ok(%{})
+                 end
+               )
+
+      refute_received {:game_called, _}
+      refute Enum.any?(trace, &match?(%{type: "cleanup_stop"}, &1))
+    end
+  end
+
+  test "a completed action cannot justify cleanup for a later unapproved request" do
+    owner = self()
+
+    worker =
+      scripted_worker([
+        %{
+          id: 1,
+          effect: "WalkTo",
+          argument: %{position: %{x2: 0, y2: 0}, timeout_ticks: 60}
+        },
+        %{id: 2, effect: "Mine", argument: %{}}
+      ])
+
+    assert {:error, :unapproved_effect, trace} =
+             Eyg.run(nil, "1",
+               worker: worker,
+               effects: ["WalkTo"],
+               call: fn method, _ ->
+                 send(owner, {:game_called, method})
+                 ok(%{"id" => 7})
+               end,
+               await: fn 7 -> ok(%{"id" => 7, "status" => "completed"}) end
+             )
+
+    assert_received {:game_called, :walk_to}
+    refute_received {:game_called, _}
+    refute Enum.any?(trace, &match?(%{type: "cleanup_stop"}, &1))
   end
 
   test "inspection normalizes empty collections and fractional world positions" do
@@ -110,6 +184,34 @@ defmodule FactorioControl.EygTest do
              &match?(%{type: "game_receipt", result: %{response: %{"data" => %{"id" => 9}}}}, &1)
            )
 
+    assert List.last(trace).type == "cleanup_stop"
+  end
+
+  test "submission timeout still cancels when no acceptance receipt is available" do
+    owner = self()
+
+    call = fn
+      :walk_to, _ ->
+        send(owner, {:game_called, :walk_to})
+        Process.sleep(5000)
+
+      :stop, _ ->
+        send(owner, {:game_called, :stop})
+        ok(%{})
+    end
+
+    assert {:error, :handler_timeout, trace} =
+             Eyg.run(
+               nil,
+               "perform WalkTo({position: {x2: 0, y2: 0}, timeout_ticks: 60})",
+               options(call: call, timeout: 1000)
+             )
+
+    assert_received {:game_called, :walk_to}
+    assert_received {:game_called, :stop}
+    refute_received {:game_called, _}
+    assert Enum.any?(trace, &match?(%{type: "action_submission", method: "walk_to"}, &1))
+    refute Enum.any?(trace, &match?(%{type: "game_receipt", method: "walk_to"}, &1))
     assert List.last(trace).type == "cleanup_stop"
   end
 
