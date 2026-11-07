@@ -1,8 +1,8 @@
 # Factorio Control
 
-An Elixir host controls a character on a headless Factorio server through a small Lua mod. The longer-term goal is to run LLM-generated EYG programs against the same constrained action interface.
+An Elixir host controls a character on a headless Factorio server through a small Lua mod. EYG programs can use the same constrained gameplay interface through an Elixir effect host and a shared, Pi-independent evaluator.
 
-**Status:** working prototype on **Factorio 2.1.24**. RCON, inspection, walking, mining, placement, inventory transfers, and iron production have been exercised on the local server. Crafting, pathfinding, and EYG integration remain future work.
+**Status:** working prototype on **Factorio 2.1.24**. RCON, inspection, walking, mining, placement, inventory transfers, and iron production have been exercised on the local server. The EYG adapter and coal-to-iron program are verified against a fake backend; a live EYG run remains unverified. Crafting and pathfinding remain future work.
 
 ## Run locally
 
@@ -82,3 +82,47 @@ mix run scenarios/production.exs
 Process-lifecycle tests use small fake executables to exercise Port output, readiness, startup failure, and graceful shutdown. Protocol tests use local fake TCP servers, covering fragmented reads, multi-packet replies, authentication rejection, malformed frames, response IDs, deadlines, and lost replies without retries. Live tests require an idle mod-owned bot on Nauvis with room nearby, spare inventory space, and no furnace in its inventory. They temporarily grant two chest items and two wood through administrator Lua, then clean up the fixture. Do not run another bot plan concurrently. A failed test or transport loss can require manual fixture cleanup.
 
 The production scenario uses the existing POC iron drill at `(29,-42)`, furnace at `(29,-40)`, and coal tile at `(45.5,17.5)`. It walks to coal, mines 12 pieces, returns, fuels both machines, and waits for the iron-plate count to increase. It creates no items. It requires that coal tile still exist, the route remain clear, and the furnace output have room.
+
+## EYG programs
+
+Build the shared evaluator from the sibling config checkout (Gleam and Node 24+):
+
+```sh
+(cd ../config/pi/agent/extensions/eyg-action && gleam build)
+export EYG_WORKER="$PWD/../config/pi/agent/extensions/eyg-action/portable-worker.mjs"
+mix test
+```
+
+Tests default to that sibling worker location; set `EYG_WORKER` for a different
+layout. The evaluator is shared source, not copied into this repository or
+published as a package. It uses its existing pinned Gleam dependencies. There
+are still no Hex dependencies in the Elixir host.
+
+With a running server, RCON credentials and an existing idle bot, run:
+
+```sh
+mix factorio.eyg --effects Inspect,WalkTo,Mine,Transfer,Wait scenarios/production.eyg
+```
+
+This **changes the world**: it walks to the existing coal tile, mines 12 coal,
+returns to the POC iron line, gives five coal to each machine, and checks for
+fresh iron plates for at most 1,200 ticks. It creates no items. It assumes the
+same world layout as `scenarios/production.exs`; prepare the bot explicitly with
+`mix factorio spawn` if needed. Use one controller at a time. The EYG program
+has passed a fake-backend integration test; it has not yet been run live.
+
+`--effects` is the host's capability selection, checked before evaluation; the
+program cannot add effects. Omit it to enable all seven gameplay effects.
+`--worker`, `--timeout` (milliseconds, default 300000, maximum 600000),
+`--max-effects` (default/maximum 100), `--host`, `--port` and `--trace` are
+available. No arbitrary Lua, RCON, shell, filesystem or network effect is exposed.
+
+Each run writes an exclusive mode-0600 NDJSON trace to the printed temporary
+path, or `--trace PATH`. Requests precede gameplay calls; game acceptance and
+terminal action receipts are flushed separately before resuming the program.
+The trace includes a source hash, chosen effects and worker path. Preserve the
+source and worker revision alongside it for replay; this is not a deterministic
+world replay or durable continuation store.
+
+See [the EYG integration design](DESIGN.md#eyg-effect-boundary) for contracts,
+coordinate units and failure/cancellation behavior.

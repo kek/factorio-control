@@ -1,0 +1,59 @@
+let failed = (reason) -> {{success: False({}), before: 0, after: 0, error: reason}}
+let then = (result, next) -> {
+  match result {
+    Ok(value) -> {next(value)}
+    Error(reason) -> {failed(reason)}
+  }
+}
+let furnace_output = (world) -> {
+  !list_fold(world.entities, {found: False({}), count: 0}, (entity, acc) -> {
+    match !equal({name: entity.name, x: entity.x_milli, y: entity.y_milli}, {name: "stone-furnace", x: 29000, y: -40000}) {
+      True(_) -> {{found: True({}), count: !list_fold(entity.output, 0, (stack, n) -> {
+        match !equal({name: stack.name, quality: stack.quality}, {name: "iron-plate", quality: "normal"}) {
+          True(_) -> {!int_add(n, stack.count)}
+          | (_) -> {n}
+        }
+      })}}
+      | (_) -> {acc}
+    }
+  })
+}
+then(perform WalkTo({position: {x2: 88, y2: 34}, timeout_ticks: 1800}), (_) -> {
+then(perform Mine({position: {x2: 91, y2: 35}, item: "coal", count: 12, timeout_ticks: 1800}), (_) -> {
+then(perform WalkTo({position: {x2: 58, y2: -76}, timeout_ticks: 1800}), (_) -> {
+then(perform Inspect({radius: 5}), (world) -> {
+  let baseline = furnace_output(world)
+  match !equal({found: baseline.found, truncated: world.truncated}, {found: True({}), truncated: False({})}) {
+    False(_) -> {failed("Furnace missing or inspection truncated")}
+    True(_) -> {
+then(perform Transfer({position: {x2: 58, y2: -84}, entity: "burner-mining-drill", inventory: "fuel", direction: "give", item: "coal", count: 5}), (_) -> {
+then(perform Transfer({position: {x2: 58, y2: -80}, entity: "stone-furnace", inventory: "fuel", direction: "give", item: "coal", count: 5}), (_) -> {
+  !list_fold([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], {success: False({}), before: baseline.count, after: baseline.count, error: "Production did not advance within 1200 ticks"}, (_, state) -> {
+    match !equal({success: state.success, error: state.error}, {success: False({}), error: "Production did not advance within 1200 ticks"}) {
+      False(_) -> {state}
+      True(_) -> {
+        then(perform Wait({ticks: 60}), (_) -> {
+          then(perform Inspect({radius: 5}), (current) -> {
+            let output = furnace_output(current)
+            match !equal({found: output.found, truncated: current.truncated}, {found: True({}), truncated: False({})}) {
+              False(_) -> {failed("Furnace missing or inspection truncated")}
+              True(_) -> {
+                match !int_compare(output.count, baseline.count) {
+                  Gt(_) -> {{success: True({}), before: baseline.count, after: output.count, error: ""}}
+                  | (_) -> {state}
+                }
+              }
+            }
+          })
+        })
+      }
+    }
+  })
+})
+})
+    }
+  }
+})
+})
+})
+})

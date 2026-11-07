@@ -7,10 +7,10 @@ This is the maintained design reference. The current implementation targets **Fa
 Control a character on a headless server with a small observable loop: inspect the world, act, inspect the result. Ultimately an LLM, initially Claude, should write EYG programs using the same bot capabilities.
 
 ```text
-LLM-generated EYG program (future)
+LLM-generated EYG program
           |
           v
-Elixir host / effect handlers (handlers are future work)
+Shared JS evaluator ↔ Elixir host / effect handlers
           |
           | Source RCON over TCP; Lua calls and JSON responses
           v
@@ -71,15 +71,81 @@ The local POC built a drill feeding a furnace directly at `(29,-42)` / `(29,-40)
 
 The Elixir/mod production scenario subsequently walked to coal, mined 12 pieces, returned, refueled both machines and observed fresh plates (41 to 42 on the first run). The line remains in the test save. Protocol tests cover fragmentation, multiple replies, authentication rejection, invalid framing/IDs, deadlines, and no retries after a lost reply. Opt-in live tests exercise item conservation, failed and successful placement, transfers, cancellation, deadlines, and action queries from a new connection. See the README for commands and fixture assumptions.
 
-## EYG effect boundary and future work
+## EYG effect boundary
 
-Proposed effects include `Place`, `Mine`, `Craft`, `Inspect`, `Wait(ticks)`, and `AwaitCondition`. Each handler should validate input, call the mod, and return structured results. The model should receive these capabilities rather than arbitrary Lua or RCON access. MCP is another possible adapter to the same operations.
+`FactorioControl.Eyg` embeds the shared evaluator through an NDJSON worker at
+`config/pi/agent/extensions/eyg-action/portable-worker.mjs`. The shared Gleam
+module parses, checks a host-owned structural effect context and retains the
+continuation while Elixir handles each request. The runtime has no Pi imports.
+Elixir owns credentials, RCON and game action lifecycles. This uses the current
+JavaScript target; a native BEAM evaluator has not been investigated.
 
-EYG is intended to provide inferred effect types for checking plans, interchangeable handlers for dry runs, replayable traces and approval gates, and serializable continuations for suspension/resumption. This follows the earlier arm's-length email-agent design. These integration assumptions remain unverified. A suspended program also needs a defined completion notification mechanism; the initial host currently polls action status.
+Every effect returns EYG `Result(value, String)`. `Inspect({radius})` returns a
+fixed `{tick, inventory, entities, truncated}` record. Inventory/output stacks
+are `{name, quality, count}`; entities expose `{name,x_milli,y_milli,output}`.
+Absent/empty Lua collections become lists. Coordinates in observations are
+rounded to integer thousandths of a tile. Inspection is bounded by the existing
+200-entity mod limit and the shared 64,000-byte protocol frame limit; preserve
+and check `truncated` before treating a missing entity as absent.
 
-Models may need a compact EYG language reference, worked examples, fast type-error feedback, or JSON IR output. Further gameplay work includes crafting (`begin_crafting`), asynchronous pathfinding (`surface.request_path`), richer resource queries, inventory views, and eventually construction-robot ghost/blueprint workflows (`entity-ghost`, `LuaItemStack.build_blueprint`). Verify each new API against the pinned release.
+Other effects return `{tick,count,action_id}` (`action_id:0` for immediate
+operations; `count:0` where not applicable):
 
-Before expanding integration, define stable request deduplication/recovery for lost acceptance replies, richer entity selection, and whether action completion should be pushed or polled. Respawn policy, cancellation of future crafting/pathfinding, and multi-host ownership also need decisions.
+| Effect | Request |
+| --- | --- |
+| `WalkTo` | `{position:{x2,y2},timeout_ticks}` |
+| `Mine` | `{position:{x2,y2},item,count,timeout_ticks}` |
+| `Build` | `{position:{x2,y2},item,direction}`; direction is `north/east/south/west` |
+| `Transfer` | `{position:{x2,y2},entity,inventory,direction,item,count}` |
+| `Wait` | `{ticks}` |
+| `Stop` | `{}` |
+
+Input positions use **integer half-tile units**, so `{x2:91,y2:35}` means
+`(45.5,17.5)`. Floats and null are not supported by the bridge. Position
+components are limited to ±2,000,000; counts to 1–1000; durations to 1–3600
+ticks; names to 100 UTF-8 bytes. The mod retains its stricter gameplay checks.
+There is no spawn/respawn effect or administrator Lua escape hatch.
+
+`WalkTo` and `Mine` submit once, then poll the accepted action ID through
+`Bot.await`. They resume the EYG continuation only after a terminal result.
+Confirmed game rejection or failed/cancelled actions return catchable `Error`;
+raw game/action receipts retain partial progress. Transport loss, unknown action
+status, malformed replies, host exceptions and timeouts stop evaluation without
+resuming as an ordinary error. Requests are never automatically retried or
+reconnected. IDs do not deduplicate lost acceptance replies.
+
+`Wait` polls game ticks (not elapsed wall time), with a separate 65-second wall
+limit. The whole run defaults to 300 seconds, maximum 600 seconds, including
+handlers, and allows at most 100 external effects. These are distinct from each
+action's in-game tick deadline. A paused game can reach a wall deadline without
+advancing its simulation deadline.
+
+The host kills its disposable Node worker at completion, timeout or host-process
+death. An incomplete walk/mine effect on a returned host failure triggers one
+best-effort `stop` through the same connection, recorded separately. It does
+not reconnect, retry the action, undo a build/transfer, or establish that an
+uncertain mutation did not occur. A typecheck/read-only failure performs no
+cleanup mutation. Abrupt VM/application death may prevent cleanup; the mod's
+tick deadline remains the fallback. Concurrent controllers are unsupported.
+
+The CLI exclusively creates a private NDJSON trace and flushes requests,
+acceptance receipts, terminal receipts and replies. Confirmed receipts also
+survive a worker/handler failure in the returned trace. Source hashes and worker
+paths aid audit but do not pin a save, runtime or mod version. Durable
+continuations, deterministic world replay, plan approvals, request deduplication
+and multi-host ownership remain future work. A fake backend can implement the
+same call/await callbacks; that tests orchestration, not collision, reachability
+or resource availability in a real world.
+
+Verification includes a complete fake-backend replay of `production.eyg`,
+unknown mutation replies, acceptance-receipt retention after handler timeout,
+restricted contexts, empty collection normalization, and killing a CPU-bound
+worker. No live EYG run has been performed. The interpreter process still has
+OS permissions; this is an effect interface, not a hardened hostile-code sandbox.
+
+Further gameplay work includes crafting, asynchronous pathfinding, richer
+resource queries and construction-robot workflows. Verify new game APIs against
+the pinned Factorio release before adding them.
 
 ## Constraints, observability, and prior art
 
