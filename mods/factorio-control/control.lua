@@ -10,6 +10,8 @@ local buildable = {
   ["burner-mining-drill"] = true, ["stone-furnace"] = true,
   ["wooden-chest"] = true, ["transport-belt"] = true, ["burner-inserter"] = true
 }
+local status_names = {}
+for name, value in pairs(defines.entity_status) do status_names[value] = name end
 
 local function fail(code, message)
   error({code = code, message = message}, 0)
@@ -88,11 +90,16 @@ end
 local function entity_summary(e)
   local out = {name = e.name, type = e.type, position = e.position, unit_number = e.unit_number}
   if e.type == "resource" then out.amount = e.amount end
+  if e.force.name == character().force.name then
+    if e.type == "character" then out.inventory = contents(e.get_main_inventory()) end
+    if e.type == "container" then out.inventory = contents(e.get_inventory(defines.inventory.chest)) end
+  end
   if e.force.name == character().force.name and e.type ~= "character" then
     out.status = e.status
+    out.status_name = status_names[e.status] or "unknown"
     out.fuel = contents(e.get_fuel_inventory())
     out.output = contents(e.get_output_inventory())
-    if e.type == "furnace" then
+    if e.type == "furnace" or e.type == "assembling-machine" then
       out.input = contents(e.get_inventory(defines.inventory.crafter_input))
     end
   end
@@ -122,6 +129,7 @@ function methods.inspect(args)
   local c = character()
   local radius = number(args.radius or 16, "radius", 0, 64)
   check(args.name == nil or type(args.name) == "string", "invalid_argument", "name must be a string")
+  check(args.name == nil or prototypes.entity[args.name], "invalid_argument", "Unknown entity name")
   local entities = c.surface.find_entities_filtered{position = c.position, radius = radius, name = args.name, limit = 201}
   local out = {position = c.position, surface = c.surface.name, health = c.health,
     inventory = contents(c.get_main_inventory()), entities = {}, truncated = #entities > 200,
@@ -130,6 +138,22 @@ function methods.inspect(args)
     out.entities[#out.entities + 1] = entity_summary(entities[i])
   end
   return out
+end
+
+function methods.inspect_entity(args)
+  local c = character()
+  check(type(args.name) == "string" and prototypes.entity[args.name],
+    "invalid_argument", "A valid entity name is required")
+  local pos = position(args.position)
+  -- A single lookup on the bot's surface; read-only and independent of reach.
+  local e = c.surface.find_entity(args.name, pos)
+  check(e and e.valid, "not_found", "No matching entity at position")
+  return entity_summary(e)
+end
+
+function methods.inspect_simulation(_args)
+  return {speed = game.speed, tick_paused = game.tick_paused,
+    connected_players = #game.connected_players, version = script.active_mods.base}
 end
 
 function methods.walk_to(args)

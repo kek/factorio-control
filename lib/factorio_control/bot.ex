@@ -1,7 +1,8 @@
 defmodule FactorioControl.Bot do
   @moduledoc "JSON adapter to the mod's constrained bot interface."
   alias FactorioControl.Rcon
-  @methods ~w(spawn inspect walk_to mine stop action build transfer)
+
+  @methods ~w(spawn inspect inspect_entity inspect_simulation walk_to mine stop action build transfer)
 
   def call(client, method, args \\ %{}, opts \\ []) when is_map(args) do
     method = to_string(method)

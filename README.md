@@ -2,7 +2,7 @@
 
 An Elixir host controls a character on a headless Factorio server through a small Lua mod. EYG programs can use the same constrained gameplay interface through an Elixir effect host and a shared, Pi-independent evaluator.
 
-**Status:** working prototype on **Factorio 2.1.24**. RCON, inspection, walking, mining, placement, inventory transfers, and iron production have been exercised on the local server. The EYG adapter and coal-to-iron program are verified against a fake backend; a live EYG run remains unverified. Crafting and pathfinding remain future work.
+**Status:** working prototype on **Factorio 2.1.24**. RCON, inspection, walking, mining, placement, inventory transfers, and iron production have been exercised on the local server. The EYG coal-to-iron program has also passed on the live server, including a depleted coal tile and a full furnace output. Crafting and pathfinding remain future work.
 
 ## Run locally
 
@@ -26,6 +26,16 @@ mix factorio.server
 `mix factorio.server` owns the game process through an Elixir `Port` and streams its output. It launches `scripts/server`, which links the mod from `mods/factorio-control` into the server's mod directory and execs the game with `my-save.zip` and `server-settings.json`. These settings keep ticks advancing with no connected players. If the mod was previously disabled, enable `factorio-control` in `factorio/mods/mod-list.json` before starting.
 
 For a graphical client, install the same mod directory under `~/.factorio/mods/factorio-control`, restart/synchronize mods, and connect to **localhost:34197**. Match the server's game version and enabled official mods. Mod code changes require restarting both server and client. The local test installation uses symlinks to this checkout.
+
+The standalone Linux client can use its unpacked directory instead of `~/.factorio`.
+For the installation at `~/Applications/factorio`, install the mod in
+`~/Applications/factorio/mods/factorio-control`. Check `Write data path` in the
+client's `factorio-current.log` to identify the correct location. The local mod
+is unpublished, so the multiplayer sync dialog cannot download it from the mod
+portal; install it locally first, enable it, and restart the client.
+When updating the mod, update both installations together. In this development
+setup the server and standalone client both link to `mods/factorio-control`, so
+edits reach both automatically; restart both processes to load the new Lua code.
 
 RCON listens on TCP port 27015; game clients use UDP port 34197. RCON is unencrypted: keep it on a trusted local/private network. Lua console commands disable achievements in the save; Factorio may require repeating the first command to confirm. This client does not repeat commands automatically.
 
@@ -81,7 +91,7 @@ mix run scenarios/production.exs
 
 Process-lifecycle tests use small fake executables to exercise Port output, readiness, startup failure, and graceful shutdown. Protocol tests use local fake TCP servers, covering fragmented reads, multi-packet replies, authentication rejection, malformed frames, response IDs, deadlines, and lost replies without retries. Live tests require an idle mod-owned bot on Nauvis with room nearby, spare inventory space, and no furnace in its inventory. They temporarily grant two chest items and two wood through administrator Lua, then clean up the fixture. Do not run another bot plan concurrently. A failed test or transport loss can require manual fixture cleanup.
 
-The production scenario uses the existing POC iron drill at `(29,-42)`, furnace at `(29,-40)`, and coal tile at `(45.5,17.5)`. It walks to coal, mines 12 pieces, returns, fuels both machines, and waits for the iron-plate count to increase. It creates no items. It requires that coal tile still exist, the route remain clear, and the furnace output have room.
+Both production scenarios use the existing POC iron drill at `(29,-42)`, furnace at `(29,-40)`, and coal patch near `(44,17)`. They inspect the patch, choose an observed tile with at least 12 coal, walk to it and mine 12 pieces. They return, collect finished plates into the bot inventory, record a new output baseline, fuel both machines, and wait for fresh plates. They create no items. The route must remain clear, a suitable coal tile must remain within the five-tile search radius, and the bot must have room for fuel and collected plates.
 
 ## EYG programs
 
@@ -104,15 +114,19 @@ With a running server, RCON credentials and an existing idle bot, run:
 mix factorio.eyg --effects Inspect,WalkTo,Mine,Transfer,Wait scenarios/production.eyg
 ```
 
-This **changes the world**: it walks to the existing coal tile, mines 12 coal,
-returns to the POC iron line, gives five coal to each machine, and checks for
-fresh iron plates for at most 1,200 ticks. It creates no items. It assumes the
-same world layout as `scenarios/production.exs`; prepare the bot explicitly with
-`mix factorio spawn` if needed. Use one controller at a time. The EYG program
-has passed a fake-backend integration test; it has not yet been run live.
+This **changes the world**: it selects an available tile in the known coal patch,
+mines 12 coal, returns to the POC iron line, collects finished plates, gives five
+coal to each machine, and checks for fresh iron plates for at most 1,200 ticks.
+It creates no items. It assumes the same world layout as `scenarios/production.exs`;
+prepare the bot explicitly with `mix factorio spawn` if needed. Use one controller
+at a time. The EYG program has passed fake-backend tests and a live run starting
+with the original coal tile depleted and 100 plates blocking the furnace. The
+reported `before`/`after` counts describe furnace output after collecting the old
+plates; collected plates remain in the bot inventory.
 
 `--effects` is the host's capability selection, checked before evaluation; the
-program cannot add effects. Omit it to enable all seven gameplay effects.
+program cannot add effects. Omit it to enable all twelve effects, including the
+read-only inspections below.
 `--worker`, `--timeout` (milliseconds, default 300000, maximum 600000),
 `--max-effects` (default/maximum 100), `--host`, `--port` and `--trace` are
 available. No arbitrary Lua, RCON, shell, filesystem or network effect is exposed.
@@ -126,3 +140,35 @@ world replay or durable continuation store.
 
 See [the EYG integration design](DESIGN.md#eyg-effect-boundary) for contracts,
 coordinate units and failure/cancellation behavior.
+
+## Read-only EYG inspections
+
+Run the same inspections used to diagnose the production line, without granting
+movement, mining, building, transfers, or stopping:
+
+```sh
+mix factorio.eyg \
+  --effects InspectBot,InspectEntity,InspectResources,InspectSimulation \
+  scenarios/inspect.eyg
+```
+
+The example reports the POC furnace and drill inventories/status, bot inventory
+and position, simulation state, and a summary of nearby coal. It neither spawns
+a bot nor changes the world. It requires an existing bot and the updated mod on
+the server; your standalone client needs the same mod when joining.
+
+| Effect | Available information |
+| --- | --- |
+| `InspectBot({})` | Position, health, surface, inventory, and active action (if any). |
+| `InspectEntity({name,position:{x2,y2}})` | One entity on the bot's surface, including symbolic status (`full_output`, `no_fuel`, etc.), resource amount, and separate main, fuel, input and output inventories where supported. The lookup does not require the bot to be within interaction reach. |
+| `InspectResources({item,radius})` | Positions and remaining quantities for up to 200 matching resource tiles within 0–64 tiles of the bot, plus a truncation flag. |
+| `InspectAction({id})` | Action status, partial collected count, target, tick deadlines, and error details. IDs come from action receipts in the trace; only the latest 64 actions are retained. |
+| `InspectSimulation({})` | Tick, game speed, explicit pause flag, connected player count, and game version. Works even before spawning a bot. |
+
+All return `Result(value, String)`. Observed positions, health and simulation
+speed use integer thousandths (`speed_milli:1000` means normal speed). Input
+positions still use integer half tiles. Empty inventories/actions are lists;
+the diagnostic's coal sum covers only observed tiles and is incomplete if
+`truncated` is true. Missing entities and expired action IDs return errors.
+The explicit `tick_paused` flag is not a substitute for observing tick advancement
+when diagnosing server auto-pause.

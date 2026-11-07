@@ -5,6 +5,30 @@ let then = (result, next) -> {
     Error(reason) -> {failed(reason)}
   }
 }
+let half_tile = (milli) -> {
+  match !int_divide(milli, 500) {
+    Ok(value) -> {value}
+    Error(_) -> {0}
+  }
+}
+let coal_target = (world) -> {
+  !list_fold(world.entities, {found: False({}), amount: 0, position: {x2: 0, y2: 0}}, (entity, best) -> {
+    match !equal(entity.name, "coal") {
+      True(_) -> {
+        match !int_compare(entity.amount, 12) {
+          Lt(_) -> {best}
+          | (_) -> {
+            match !int_compare(entity.amount, best.amount) {
+              Gt(_) -> {{found: True({}), amount: entity.amount, position: {x2: half_tile(entity.x_milli), y2: half_tile(entity.y_milli)}}}
+              | (_) -> {best}
+            }
+          }
+        }
+      }
+      | (_) -> {best}
+    }
+  })
+}
 let furnace_output = (world) -> {
   !list_fold(world.entities, {found: False({}), count: 0}, (entity, acc) -> {
     match !equal({name: entity.name, x: entity.x_milli, y: entity.y_milli}, {name: "stone-furnace", x: 29000, y: -40000}) {
@@ -19,11 +43,27 @@ let furnace_output = (world) -> {
   })
 }
 then(perform WalkTo({position: {x2: 88, y2: 34}, timeout_ticks: 1800}), (_) -> {
-then(perform Mine({position: {x2: 91, y2: 35}, item: "coal", count: 12, timeout_ticks: 1800}), (_) -> {
+then(perform Inspect({radius: 5}), (coal_world) -> {
+  let target = coal_target(coal_world)
+  match target.found {
+    False(_) -> {failed("No observed coal tile has 12 coal remaining; move closer to the patch")}
+    True(_) -> {
+then(perform WalkTo({position: target.position, timeout_ticks: 1800}), (_) -> {
+then(perform Mine({position: target.position, item: "coal", count: 12, timeout_ticks: 1800}), (_) -> {
 then(perform WalkTo({position: {x2: 58, y2: -76}, timeout_ticks: 1800}), (_) -> {
 then(perform Inspect({radius: 5}), (world) -> {
-  let baseline = furnace_output(world)
-  match !equal({found: baseline.found, truncated: world.truncated}, {found: True({}), truncated: False({})}) {
+  let existing = furnace_output(world)
+  match !equal({found: existing.found, truncated: world.truncated}, {found: True({}), truncated: False({})}) {
+    False(_) -> {failed("Furnace missing or inspection truncated")}
+    True(_) -> {
+  let drain = match !int_compare(existing.count, 0) {
+    Gt(_) -> {perform Transfer({position: {x2: 58, y2: -80}, entity: "stone-furnace", inventory: "output", direction: "take", item: "iron-plate", count: existing.count})}
+    | (_) -> {Ok({tick: world.tick, count: 0, action_id: 0})}
+  }
+then(drain, (_) -> {
+then(perform Inspect({radius: 5}), (cleared_world) -> {
+  let baseline = furnace_output(cleared_world)
+  match !equal({found: baseline.found, truncated: cleared_world.truncated}, {found: True({}), truncated: False({})}) {
     False(_) -> {failed("Furnace missing or inspection truncated")}
     True(_) -> {
 then(perform Transfer({position: {x2: 58, y2: -84}, entity: "burner-mining-drill", inventory: "fuel", direction: "give", item: "coal", count: 5}), (_) -> {
@@ -55,5 +95,13 @@ then(perform Transfer({position: {x2: 58, y2: -80}, entity: "stone-furnace", inv
   }
 })
 })
+    }
+  }
+})
+})
+})
+})
+    }
+  }
 })
 })

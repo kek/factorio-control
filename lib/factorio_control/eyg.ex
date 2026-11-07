@@ -12,7 +12,25 @@ defmodule FactorioControl.Eyg do
     text = scalar("string")
     position = record(x2: int, y2: int)
     stack = record(name: text, quality: text, count: int)
-    entity = record(name: text, x_milli: int, y_milli: int, output: list(stack))
+    resource = record(name: text, x_milli: int, y_milli: int, amount: int)
+    entity = record(name: text, x_milli: int, y_milli: int, amount: int, output: list(stack))
+
+    action =
+      record(
+        id: int,
+        kind: text,
+        status: text,
+        count: int,
+        started_tick: int,
+        deadline_tick: int,
+        finished_tick: int,
+        has_position: scalar("boolean"),
+        x_milli: int,
+        y_milli: int,
+        error_code: text,
+        error_message: text
+      )
+
     receipt = record(tick: int, count: int, action_id: int)
 
     %{
@@ -24,6 +42,64 @@ defmodule FactorioControl.Eyg do
             inventory: list(stack),
             entities: list(entity),
             truncated: scalar("boolean")
+          )
+        ),
+      "InspectBot" =>
+        contract(
+          record([]),
+          record(
+            tick: int,
+            bot:
+              record(
+                x_milli: int,
+                y_milli: int,
+                health_milli: int,
+                surface: text,
+                inventory: list(stack),
+                active_actions: list(action)
+              )
+          )
+        ),
+      "InspectEntity" =>
+        contract(
+          record(name: text, position: position),
+          record(
+            tick: int,
+            entity:
+              record(
+                name: text,
+                type: text,
+                unit_number: int,
+                x_milli: int,
+                y_milli: int,
+                amount: int,
+                status: text,
+                inventory: list(stack),
+                fuel: list(stack),
+                input: list(stack),
+                output: list(stack)
+              )
+          )
+        ),
+      "InspectResources" =>
+        contract(
+          record(item: text, radius: int),
+          record(
+            tick: int,
+            resources: list(resource),
+            truncated: scalar("boolean")
+          )
+        ),
+      "InspectAction" => contract(record(id: int), record(tick: int, action: action)),
+      "InspectSimulation" =>
+        contract(
+          record([]),
+          record(
+            tick: int,
+            speed_milli: int,
+            tick_paused: scalar("boolean"),
+            connected_players: int,
+            version: text
           )
         ),
       "WalkTo" => contract(record(position: position, timeout_ticks: int), receipt),
@@ -175,6 +251,7 @@ defmodule FactorioControl.Eyg do
             "name" => entity["name"],
             "x_milli" => round(entity["position"]["x"] * 1000),
             "y_milli" => round(entity["position"]["y"] * 1000),
+            "amount" => entity["amount"] || 0,
             "output" => stacks(entity["output"])
           }
         end)
@@ -185,6 +262,106 @@ defmodule FactorioControl.Eyg do
          "inventory" => stacks(data["inventory"]),
          "entities" => entities,
          "truncated" => data["truncated"] == true
+       }}
+    end
+  end
+
+  def handle("InspectBot", args, call, _) when args == %{} do
+    with {:ok, response} <- invoke(call, :inspect, %{"radius" => 0}) do
+      data = response["data"]
+
+      active =
+        case data["active_action"] do
+          nil -> []
+          action -> [action_summary(action)]
+        end
+
+      {:ok,
+       %{
+         "tick" => response["tick"],
+         "bot" => %{
+           "x_milli" => milli(data["position"]["x"]),
+           "y_milli" => milli(data["position"]["y"]),
+           "health_milli" => milli(data["health"]),
+           "surface" => data["surface"],
+           "inventory" => stacks(data["inventory"]),
+           "active_actions" => active
+         }
+       }}
+    end
+  end
+
+  def handle("InspectEntity", %{"name" => name, "position" => pos}, call, _) do
+    with :ok <- item(name),
+         {:ok, position} <- position(pos),
+         {:ok, response} <-
+           invoke(call, :inspect_entity, %{"name" => name, "position" => position}) do
+      e = response["data"]
+
+      {:ok,
+       %{
+         "tick" => response["tick"],
+         "entity" => %{
+           "name" => e["name"],
+           "type" => e["type"],
+           "unit_number" => e["unit_number"] || 0,
+           "x_milli" => milli(e["position"]["x"]),
+           "y_milli" => milli(e["position"]["y"]),
+           "amount" => e["amount"] || 0,
+           "status" => e["status_name"] || "not_applicable",
+           "inventory" => stacks(e["inventory"]),
+           "fuel" => stacks(e["fuel"]),
+           "input" => stacks(e["input"]),
+           "output" => stacks(e["output"])
+         }
+       }}
+    end
+  end
+
+  def handle("InspectResources", %{"item" => item, "radius" => radius}, call, _)
+      when is_integer(radius) and radius in 0..64 do
+    with :ok <- item(item),
+         {:ok, response} <- invoke(call, :inspect, %{"radius" => radius, "name" => item}) do
+      resources =
+        response["data"]["entities"]
+        |> collection()
+        |> Enum.filter(&(&1["type"] == "resource" and &1["name"] == item))
+        |> Enum.map(fn e ->
+          %{
+            "name" => e["name"],
+            "x_milli" => milli(e["position"]["x"]),
+            "y_milli" => milli(e["position"]["y"]),
+            "amount" => e["amount"]
+          }
+        end)
+
+      {:ok,
+       %{
+         "tick" => response["tick"],
+         "resources" => resources,
+         "truncated" => response["data"]["truncated"] == true
+       }}
+    end
+  end
+
+  def handle("InspectAction", %{"id" => id}, call, _)
+      when is_integer(id) and id in 1..2_147_483_647 do
+    with {:ok, response} <- invoke(call, :action, %{"id" => id}) do
+      {:ok, %{"tick" => response["tick"], "action" => action_summary(response["data"])}}
+    end
+  end
+
+  def handle("InspectSimulation", args, call, _) when args == %{} do
+    with {:ok, response} <- invoke(call, :inspect_simulation, %{}) do
+      data = response["data"]
+
+      {:ok,
+       %{
+         "tick" => response["tick"],
+         "speed_milli" => milli(data["speed"]),
+         "tick_paused" => data["tick_paused"],
+         "connected_players" => data["connected_players"],
+         "version" => data["version"]
        }}
     end
   end
@@ -331,6 +508,28 @@ defmodule FactorioControl.Eyg do
   defp collection(value) when is_list(value), do: value
   defp collection(value) when value == %{} or is_nil(value), do: []
   defp stacks(value), do: Enum.map(collection(value), &Map.take(&1, ["name", "quality", "count"]))
+
+  defp milli(value), do: round(value * 1000)
+
+  defp action_summary(a) do
+    pos = a["position"]
+    error = a["error"] || %{}
+
+    %{
+      "id" => a["id"],
+      "kind" => a["kind"],
+      "status" => a["status"],
+      "count" => a["count"] || 0,
+      "started_tick" => a["started_tick"],
+      "deadline_tick" => a["deadline_tick"],
+      "finished_tick" => a["finished_tick"] || 0,
+      "has_position" => not is_nil(pos),
+      "x_milli" => if(pos, do: milli(pos["x"]), else: 0),
+      "y_milli" => if(pos, do: milli(pos["y"]), else: 0),
+      "error_code" => error["code"] || "",
+      "error_message" => error["message"] || ""
+    }
+  end
 
   defp position(%{"x2" => x, "y2" => y})
        when is_integer(x) and is_integer(y) and abs(x) <= 2_000_000 and abs(y) <= 2_000_000,

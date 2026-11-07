@@ -27,10 +27,22 @@ try do
   ProductionCheck.call(c, :stop)
   IO.puts("Walking to coal")
   ProductionCheck.action(c, :walk_to, %{"position" => %{"x" => 44, "y" => 17}})
+  nearby = ProductionCheck.call(c, :inspect, %{"radius" => 5, "name" => "coal"})
+  resources = if is_list(nearby["entities"]), do: nearby["entities"], else: []
+
+  target =
+    resources
+    |> Enum.filter(&(&1["amount"] >= 12))
+    |> Enum.max_by(& &1["amount"], fn -> nil end)
+
+  unless target,
+    do: raise("No observed coal tile has 12 coal remaining; move closer to the patch")
+
+  ProductionCheck.action(c, :walk_to, %{"position" => target["position"]})
   IO.puts("Mining 12 coal")
 
   ProductionCheck.action(c, :mine, %{
-    "position" => %{"x" => 45.5, "y" => 17.5},
+    "position" => target["position"],
     "item" => "coal",
     "count" => 12
   })
@@ -40,7 +52,10 @@ try do
   furnace = %{"x" => 29, "y" => -40}
   drill = %{"x" => 29, "y" => -42}
   snapshot = ProductionCheck.call(c, :inspect, %{"radius" => 5})
-  before = Enum.find(snapshot["entities"], &(&1["name"] == "stone-furnace"))
+  if snapshot["truncated"], do: raise("Furnace inspection was truncated")
+
+  before =
+    Enum.find(snapshot["entities"], &(&1["name"] == "stone-furnace")) || raise("Furnace missing")
 
   count = fn e ->
     case e["output"] do
@@ -54,7 +69,26 @@ try do
     end
   end
 
-  initial = count.(before)
+  existing = count.(before)
+
+  if existing > 0 do
+    ProductionCheck.call(c, :transfer, %{
+      "entity" => "stone-furnace",
+      "position" => furnace,
+      "inventory" => "output",
+      "direction" => "take",
+      "item" => "iron-plate",
+      "count" => existing
+    })
+  end
+
+  cleared = ProductionCheck.call(c, :inspect, %{"radius" => 5})
+  if cleared["truncated"], do: raise("Furnace inspection was truncated")
+
+  baseline =
+    Enum.find(cleared["entities"], &(&1["name"] == "stone-furnace")) || raise("Furnace missing")
+
+  initial = count.(baseline)
 
   for {name, pos} <- [{"burner-mining-drill", drill}, {"stone-furnace", furnace}] do
     ProductionCheck.call(c, :transfer, %{

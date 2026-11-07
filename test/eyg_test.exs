@@ -123,6 +123,7 @@ defmodule FactorioControl.EygTest do
                options(call: call)
              )
 
+    assert entity["amount"] == 0
     assert entity["x_milli"] == 29_000
     assert entity["output"] == [%{"name" => "iron-plate", "quality" => "normal", "count" => 41}]
   end
@@ -274,47 +275,121 @@ defmodule FactorioControl.EygTest do
              )
   end
 
-  test "production EYG program performs the coal-to-iron workflow against a fake backend" do
-    {:ok, state} = Agent.start_link(fn -> %{calls: [], inspections: 0, tick: 0} end)
-    on_exit(fn -> if Process.alive?(state), do: Agent.stop(state) end)
+  for initial_output <- [0, 41, 100] do
+    test "production selects available coal and drains a furnace holding #{initial_output} plates" do
+      initial_output = unquote(initial_output)
 
-    call = fn method, args ->
-      Agent.get_and_update(state, fn state ->
-        state = %{state | calls: state.calls ++ [{method, args}], tick: state.tick + 60}
+      {:ok, state} =
+        Agent.start_link(fn ->
+          %{
+            calls: [],
+            inspections: 0,
+            tick: 0,
+            plates: initial_output,
+            fueled: 0,
+            produced: false
+          }
+        end)
 
-        case method do
-          :inspect ->
-            n = state.inspections + 1
-            {ok(world(if(n >= 4, do: 42, else: 41)), state.tick), %{state | inspections: n}}
+      on_exit(fn -> if Process.alive?(state), do: Agent.stop(state) end)
 
-          method when method in [:walk_to, :mine] ->
-            {ok(%{"id" => length(state.calls)}), state}
+      call = fn method, args ->
+        Agent.get_and_update(state, fn state ->
+          state = %{state | calls: state.calls ++ [{method, args}], tick: state.tick + 60}
 
-          :transfer ->
-            {ok(%{"count" => args["count"]}), state}
-        end
-      end)
+          case method do
+            :inspect ->
+              cond do
+                state.inspections == 0 ->
+                  coal = %{
+                    "inventory" => %{},
+                    "entities" => [
+                      %{
+                        "name" => "coal",
+                        "amount" => 3,
+                        "position" => %{"x" => 45.5, "y" => 17.5}
+                      },
+                      %{
+                        "name" => "coal",
+                        "amount" => 200,
+                        "position" => %{"x" => 47.5, "y" => 17.5}
+                      }
+                    ],
+                    "truncated" => false
+                  }
+
+                  {ok(coal, state.tick), %{state | inspections: 1}}
+
+                state.fueled == 2 and not state.produced ->
+                  # The game only produces once output space and fuel exist.
+                  assert state.plates < 100
+                  state = %{state | plates: state.plates + 1, produced: true}
+                  {ok(world(state.plates), state.tick), state}
+
+                true ->
+                  {ok(world(state.plates), state.tick), state}
+              end
+
+            method when method in [:walk_to, :mine] ->
+              {ok(%{"id" => length(state.calls)}), state}
+
+            :transfer ->
+              if args["direction"] == "take" do
+                assert args["item"] == "iron-plate"
+                assert args["inventory"] == "output"
+                assert args["count"] == state.plates
+                {ok(%{"count" => args["count"]}), %{state | plates: 0}}
+              else
+                assert args["item"] == "coal" and args["count"] == 5
+                {ok(%{"count" => 5}), %{state | fueled: state.fueled + 1}}
+              end
+          end
+        end)
+      end
+
+      await = fn id -> ok(%{"id" => id, "status" => "completed", "count" => 12}) end
+      code = File.read!(Path.expand("../scenarios/production.eyg", __DIR__))
+
+      assert {:ok, %{"ok" => true, "value" => %{"success" => true, "before" => 0, "after" => 1}},
+              trace} =
+               Eyg.run(nil, code, options(call: call, await: await))
+
+      calls = Agent.get(state, & &1.calls)
+      assert [{:mine, mine}] = Enum.filter(calls, fn {method, _} -> method == :mine end)
+      assert mine["position"] == %{"x" => 47.5, "y" => 17.5}
+      assert mine["count"] == 12
+
+      collected = for {:transfer, %{"direction" => "take"} = args} <- calls, do: args["count"]
+      assert collected == if(initial_output > 0, do: [initial_output], else: [])
+      assert length(trace) < 100
+    end
+  end
+
+  test "production reports exhausted nearby coal without attempting mining or fueling" do
+    owner = self()
+
+    call = fn method, _ ->
+      send(owner, {:game_called, method})
+
+      case method do
+        :walk_to -> ok(%{"id" => 1})
+        :inspect -> ok(%{"inventory" => %{}, "entities" => %{}, "truncated" => false})
+      end
     end
 
-    await = fn id -> ok(%{"id" => id, "status" => "completed", "count" => 12}) end
     code = File.read!(Path.expand("../scenarios/production.eyg", __DIR__))
 
-    assert {:ok, %{"ok" => true, "value" => %{"success" => true, "before" => 41, "after" => 42}},
-            trace} = Eyg.run(nil, code, options(call: call, await: await))
+    assert {:ok, %{"value" => %{"success" => false, "error" => error}}, _} =
+             Eyg.run(
+               nil,
+               code,
+               options(call: call, await: fn 1 -> ok(%{"id" => 1, "status" => "completed"}) end)
+             )
 
-    calls = Agent.get(state, & &1.calls)
-
-    assert Enum.map(Enum.take(calls, 6), &elem(&1, 0)) == [
-             :walk_to,
-             :mine,
-             :walk_to,
-             :inspect,
-             :transfer,
-             :transfer
-           ]
-
-    assert Enum.count(calls, fn {method, _} -> method == :mine end) == 1
-    assert length(trace) < 100
+    assert error =~ "No observed coal tile"
+    assert_received {:game_called, :walk_to}
+    assert_received {:game_called, :inspect}
+    refute_received {:game_called, _}
   end
 
   test "the evaluator does not inherit host credentials or environment" do

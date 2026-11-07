@@ -44,6 +44,8 @@ Success responses are `{ok = true, tick = game.tick, data = ...}`. Errors are `{
 | --- | --- | --- |
 | `spawn` | Optional `position: {x,y}`, `surface` (default `nauvis`) | Creates an empty player-force character at a noncolliding position within 16 tiles; returns the existing living bot on repeat. Explicit spawn after death creates a replacement without recovering lost inventory. |
 | `inspect` | Optional `radius` (0–64, default 16), `name` entity filter | Position, health, inventory, active action, and up to 200 nearby entity summaries with a truncation flag. Friendly machines include fuel/output; furnaces include input. |
+| `inspect_entity` | `name`, `position` | A single entity lookup on the bot's surface, independent of reach. Friendly entities expose symbolic `status_name`, inventories and machine input/output where applicable; numeric `status` remains available. Missing entities return `not_found`. |
+| `inspect_simulation` | None | Game speed, `tick_paused`, connected player count and base version, without requiring a bot character. |
 | `walk_to` | `position`, optional `timeout_ticks` (1–3600, default 1800) | Accepts a bounded straight-line walking action. Stops within 0.5 tile or fails at its deadline. No pathfinding yet. |
 | `mine` | Resource `position`, matching output `item`, optional `count` (1–1000, default 1) and `timeout_ticks` | Mines a single resource tile in reach using normal mining progress, until the inventory increases by `count`. Depletion before completion fails with partial count reported. |
 | `action` | `id` | Current or terminal action record; unknown/expired IDs return an error. |
@@ -82,11 +84,50 @@ JavaScript target; a native BEAM evaluator has not been investigated.
 
 Every effect returns EYG `Result(value, String)`. `Inspect({radius})` returns a
 fixed `{tick, inventory, entities, truncated}` record. Inventory/output stacks
-are `{name, quality, count}`; entities expose `{name,x_milli,y_milli,output}`.
+are `{name, quality, count}`; entities expose `{name,x_milli,y_milli,amount,output}`. `amount` is the remaining resource quantity, or zero for other entities.
 Absent/empty Lua collections become lists. Coordinates in observations are
 rounded to integer thousandths of a tile. Inspection is bounded by the existing
 200-entity mod limit and the shared 64,000-byte protocol frame limit; preserve
 and check `truncated` before treating a missing entity as absent.
+
+Focused read-only effects expose the troubleshooting information without
+granting any mutations:
+
+| Effect | Request | Result fields (in addition to `tick`) |
+| --- | --- | --- |
+| `InspectBot` | `{}` | `bot:{x_milli,y_milli,health_milli,surface,inventory,active_actions}` |
+| `InspectEntity` | `{name,position:{x2,y2}}` | `entity:{name,type,unit_number,x_milli,y_milli,amount,status,inventory,fuel,input,output}` |
+| `InspectResources` | `{item,radius}` | `resources:[{name,x_milli,y_milli,amount}],truncated` |
+| `InspectAction` | `{id}` | `action:{id,kind,status,count,started_tick,deadline_tick,finished_tick,has_position,x_milli,y_milli,error_code,error_message}` |
+| `InspectSimulation` | `{}` | `speed_milli,tick_paused,connected_players,version` |
+
+`InspectBot` and `InspectResources` use the existing bounded `inspect` method;
+the resource query applies a name filter before the 200-entity limit.
+`InspectEntity` uses the dedicated single-entity mod lookup. It can inspect
+known locations anywhere on the bot's current surface, matching the earlier
+administrator diagnostics, but cannot execute arbitrary Lua. Inventories are
+exposed only for friendly entities: character/chest main inventory, machine
+fuel/output, and furnace/assembler input. Unsupported inventories are empty
+lists. Status strings use the game's `defines.entity_status` names, with
+`not_applicable` when no machine status is reported. Missing unit numbers and
+non-resource amounts are zero. Inventory stack records retain name, quality
+and count, without stack metadata.
+
+Bot health and game speed use integer thousandths to preserve fractional values.
+`active_actions` contains zero or one action. Action summaries retain partial
+progress and match the records used by `await`; `finished_tick` is zero for
+nonterminal actions, absent positions have `has_position:false` and zero
+coordinates, and absent errors use empty strings. Unknown/expired IDs are
+ordinary errors. Inspection never awaits, cancels, spawns, or retries an action.
+`InspectSimulation` reports `game.tick_paused`, which does not by itself establish
+whether server auto-pause is preventing tick advancement.
+
+`scenarios/inspect.eyg` demonstrates these diagnostics with inspection-only
+grants. The example summarizes resource quantities rather than returning an
+entire large resource list, keeping its final result within the worker's 12 KB
+result budget. Each read is a separate tick-stamped snapshot, not an atomic
+snapshot across multiple effects. Existing `Inspect({radius})` programs keep
+their original result shape.
 
 Other effects return `{tick,count,action_id}` (`action_id:0` for immediate
 operations; `count:0` where not applicable):
@@ -139,10 +180,20 @@ and multi-host ownership remain future work. A fake backend can implement the
 same call/await callbacks; that tests orchestration, not collision, reachability
 or resource availability in a real world.
 
-Verification includes a complete fake-backend replay of `production.eyg`,
+The production scenarios inspect the known coal patch and select a tile with at
+least 12 coal, rather than repeatedly targeting a depleted tile. Before checking
+production, they transfer existing furnace output to the bot inventory and take
+a fresh baseline. Inventory-capacity failures remain explicit errors; no items
+are discarded. The search is bounded to five tiles around the known coal waypoint,
+so exhaustion of that area requires choosing another waypoint.
+
+Verification includes fake-backend runs of `production.eyg` with empty, partially
+filled, and full furnace output, insufficient coal tiles and no remaining coal,
 unknown mutation replies, acceptance-receipt retention after handler timeout,
 restricted contexts, empty collection normalization, and killing a CPU-bound
-worker. No live EYG run has been performed. The interpreter process still has
+worker. A live EYG run with a depleted original coal tile and 100 plates in the
+furnace successfully collected the plates and observed new output grow from 1
+to 2. The interpreter process still has
 OS permissions; this is an effect interface, not a hardened hostile-code sandbox.
 
 Further gameplay work includes crafting, asynchronous pathfinding, richer

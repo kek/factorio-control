@@ -1,0 +1,26 @@
+// Read-only diagnosis of the POC line. No movement, mining, transfers or spawning.
+let machine = (name, position) -> {
+  match perform InspectEntity({name: name, position: position}) {
+    Ok(snapshot) -> {{status: snapshot.entity.status, fuel: snapshot.entity.fuel, input: snapshot.entity.input, output: snapshot.entity.output, error: ""}}
+    Error(reason) -> {{status: "unavailable", fuel: [], input: [], output: [], error: reason}}
+  }
+}
+let bot = match perform InspectBot({}) {
+  Ok(snapshot) -> {{x_milli: snapshot.bot.x_milli, y_milli: snapshot.bot.y_milli, health_milli: snapshot.bot.health_milli, surface: snapshot.bot.surface, inventory: snapshot.bot.inventory, active_actions: snapshot.bot.active_actions, error: ""}}
+  Error(reason) -> {{x_milli: 0, y_milli: 0, health_milli: 0, surface: "", inventory: [], active_actions: [], error: reason}}
+}
+let simulation = match perform InspectSimulation({}) {
+  Ok(snapshot) -> {{tick: snapshot.tick, speed_milli: snapshot.speed_milli, tick_paused: snapshot.tick_paused, connected_players: snapshot.connected_players, version: snapshot.version, error: ""}}
+  Error(reason) -> {{tick: 0, speed_milli: 0, tick_paused: False({}), connected_players: 0, version: "", error: reason}}
+}
+let coal = match perform InspectResources({item: "coal", radius: 64}) {
+  Ok(snapshot) -> {{tiles: !list_fold(snapshot.resources, 0, (_, n) -> {!int_add(n, 1)}), remaining: !list_fold(snapshot.resources, 0, (r, n) -> {!int_add(r.amount, n)}), truncated: snapshot.truncated, error: ""}}
+  Error(reason) -> {{tiles: 0, remaining: 0, truncated: False({}), error: reason}}
+}
+{
+  bot: bot,
+  simulation: simulation,
+  furnace: machine("stone-furnace", {x2: 58, y2: -80}),
+  drill: machine("burner-mining-drill", {x2: 58, y2: -84}),
+  coal: coal
+}
