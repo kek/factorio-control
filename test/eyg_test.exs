@@ -177,7 +177,9 @@ defmodule FactorioControl.EygTest do
              Eyg.run(
                nil,
                "perform WalkTo({position: {x2: 0, y2: 0}, timeout_ticks: 60})",
-               options(call: call, await: await, timeout: 250)
+               # Include worker startup headroom under QEMU. The 5s handler
+               # still exceeds the deadline; this tests handler, not boot, timeout.
+               options(call: call, await: await, timeout: 1500)
              )
 
     assert Enum.any?(

@@ -109,7 +109,8 @@ defmodule FactorioControl.InspectionTest do
                 "count" => 3,
                 "speed" => 500
               }
-            }, trace} =
+            },
+            trace} =
              Eyg.run(nil, code, worker: @worker, effects: effects, call: call, timeout: 5000)
 
     requests = for %{"type" => "effect-request", "effect" => name} <- trace, do: name
