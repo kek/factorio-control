@@ -2,11 +2,7 @@ defmodule FactorioControl.CraftingTest do
   use ExUnit.Case, async: true
   alias FactorioControl.Eyg
 
-  @worker System.get_env("EYG_WORKER") ||
-            Path.expand(
-              "../../config/pi/agent/extensions/eyg-action/portable-worker.mjs",
-              __DIR__
-            )
+  @worker System.fetch_env!("EYG_WORKER")
   defp ok(data), do: {:ok, %{"ok" => true, "tick" => 100, "data" => data}}
 
   test "Craft submits once and reports actual produced items after completion" do
