@@ -104,7 +104,7 @@ Both production scenarios use the existing POC iron drill at `(29,-42)`, furnace
 ## EYG programs
 
 Use Node 24+ and the separately distributed
-[kek/eyg-runtime](https://github.com/kek/eyg-runtime) worker. Its v0.1.0 release
+[kek/eyg-runtime](https://github.com/kek/eyg-runtime) worker. Its v0.1.1 release
 contains generated JavaScript, Gleam source and checksums; it needs no compiler
 or install hooks at runtime. Follow that repository's install/verification
 instructions and pin the artifact URL plus checksum or lockfile integrity.
@@ -117,7 +117,7 @@ mix format --check-formatted
 mix test --max-cases 1
 ```
 
-Tests require `EYG_WORKER`; there is no sibling-config checkout fallback.
+Tests require an explicit `EYG_WORKER`.
 Serial execution preserves the short process/handler-timeout assertions without
 concurrent worker-startup contention. The CLI also accepts `--worker PATH`.
 The evaluator remains external and is not installed or built by this host.
