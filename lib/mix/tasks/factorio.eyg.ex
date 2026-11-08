@@ -31,8 +31,8 @@ defmodule Mix.Tasks.Factorio.Eyg do
           )
       end
 
-    if (timeout = opts[:timeout]) && timeout not in 1..300_000,
-      do: Mix.raise("--timeout must be 1..300000 milliseconds")
+    if (timeout = opts[:timeout]) && timeout not in 1..600_000,
+      do: Mix.raise("--timeout must be 1..600000 milliseconds")
 
     if (max = opts[:max_effects]) && max not in 1..100,
       do: Mix.raise("--max-effects must be 1..100")

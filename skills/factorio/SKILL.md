@@ -1,7 +1,7 @@
 ---
 name: factorio
 description: Inspect and play Factorio through the factorio-control project's typed EYG effects. Use for moving the bot, mining, crafting, building, transferring items, diagnosing factories, and constructing or verifying production automation. Includes safe recovery after failed or uncertain actions.
-compatibility: A factorio-control checkout, matching running server/mod, Elixir/OTP, the Gleam compiler with the mix_gleam archive, and the locked eyg_json_bridge and EYG dependencies.
+compatibility: A factorio-control checkout, matching running server/mod, Elixir/OTP, the Gleam compiler with the mix_gleam archive, and the locked EYG Hex dependencies.
 ---
 
 # Play Factorio
@@ -40,9 +40,8 @@ headless distribution, saves, build output and local credentials are unversioned
   set -a; source .envrc; set +a
   ```
 
-- EYG programs are evaluated inside the Elixir VM by the native BEAM adapter of
-  `eyg_json_bridge` (git tag pinned in `mix.lock`) and the upstream EYG Hex
-  packages. They ship Gleam source only, so building needs
+- EYG programs are evaluated inside the Elixir VM by the upstream EYG Hex
+  packages pinned in `mix.lock`. They ship Gleam source only, so building needs
   the `gleam` compiler on `PATH` and the `mix_gleam` archive
   (`mix archive.install hex mix_gleam`), then `mix deps.get`. Installing
   dependencies is an explicit setup step, never an automatic action during
@@ -183,7 +182,7 @@ moving on, and size each step by the calculation formulas in the reference.
   action/wait durations **1–3600 ticks**, and craft counts **1–100 batches**.
   Other count limits and supported items are contract-specific. Check the source.
 - At normal speed 60 ticks = one second. A single `Wait` has a separate 65-second
-  wall limit. Whole runs default to and are capped at 300 seconds. Select both
+  wall limit. Whole runs default to 300 seconds, maximum 600 seconds. Select both
   tick and wall deadlines to cover work plus overhead; leave the outer tool's
   timeout longer than the planned run. Split large jobs instead of overrun risks.
 - Preserve each `.eyg` source and the checkout revision alongside an exclusive

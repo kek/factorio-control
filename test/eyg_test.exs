@@ -1,39 +1,3 @@
-defmodule FactorioControl.EygTest.ScriptedBridge do
-  @moduledoc false
-  # Stands in for :eyg_json_bridge_beam to bypass parsing and type checking, so
-  # tests can exercise the host's own grant boundary with requests a real run
-  # could never make. The caller stores the requests in its process dictionary.
-
-  def start(_code, _inputs, _contracts, _options) do
-    owner = self()
-    requests = Process.get(:scripted_requests, [])
-    pid = spawn(fn -> serve(owner, requests, 1) end)
-    {:ok, {__MODULE__, pid}}
-  end
-
-  def pid({__MODULE__, pid}), do: pid
-
-  def reply({__MODULE__, pid}, id, reply),
-    do: tap(:ok, fn _ -> send(pid, {:reply, id, reply}) end)
-
-  def cancel({__MODULE__, pid}), do: tap(:ok, fn _ -> Process.exit(pid, :kill) end)
-
-  defp serve(owner, [], _id),
-    do: send(owner, {:eyg_json_bridge, {__MODULE__, self()}, {:result, {:ok, "1"}}})
-
-  defp serve(owner, [{effect, argument} | rest], id) do
-    send(
-      owner,
-      {:eyg_json_bridge, {__MODULE__, self()},
-       {:effect_request, id, effect, JSON.encode!(argument)}}
-    )
-
-    receive do
-      {:reply, ^id, _} -> serve(owner, rest, id + 1)
-    end
-  end
-end
-
 defmodule FactorioControl.EygTest do
   use ExUnit.Case, async: true
   alias FactorioControl.{Eyg, Eyg.Evaluator}
@@ -41,9 +5,28 @@ defmodule FactorioControl.EygTest do
   defp options(extra), do: Keyword.merge([timeout: 5000], extra)
   defp ok(data, tick \\ 1), do: {:ok, %{"ok" => true, "tick" => tick, "data" => data}}
 
+  # Bypass parsing and type checking to exercise the host's own grant boundary:
+  # the scripted evaluation process requests effects directly.
   defp scripted(requests) do
-    Process.put(:scripted_requests, requests)
-    FactorioControl.EygTest.ScriptedBridge
+    fn owner ->
+      for {effect, argument} <- requests do
+        send(owner, {self(), :effect, effect, argument})
+
+        receive do
+          {:resume, _} -> :ok
+        end
+      end
+
+      send(owner, {self(), :done, {:integer, 1}})
+    end
+  end
+
+  defp position_argument do
+    {:record,
+     %{
+       "position" => {:record, %{"x2" => {:integer, 0}, "y2" => {:integer, 0}}},
+       "timeout_ticks" => {:integer, 60}
+     }}
   end
 
   defp world(count \\ 41) do
@@ -80,7 +63,7 @@ defmodule FactorioControl.EygTest do
 
       assert {:error, :unapproved_effect, trace} =
                Eyg.run(nil, "1",
-                 bridge: scripted([{unquote(effect), %{}}]),
+                 test_evaluator: scripted([{unquote(effect), {:record, %{}}}]),
                  effects: ["Inspect"],
                  call: fn method, _ ->
                    send(owner, {:game_called, method})
@@ -98,11 +81,8 @@ defmodule FactorioControl.EygTest do
 
     assert {:error, :unapproved_effect, trace} =
              Eyg.run(nil, "1",
-               bridge:
-                 scripted([
-                   {"WalkTo", %{position: %{x2: 0, y2: 0}, timeout_ticks: 60}},
-                   {"Mine", %{}}
-                 ]),
+               test_evaluator:
+                 scripted([{"WalkTo", position_argument()}, {"Mine", {:record, %{}}}]),
                effects: ["WalkTo"],
                call: fn method, _ ->
                  send(owner, {:game_called, method})

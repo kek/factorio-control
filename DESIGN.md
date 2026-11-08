@@ -77,31 +77,28 @@ The Elixir/mod production scenario subsequently walked to coal, mined 12 pieces,
 
 ## EYG effect boundary
 
-EYG programs run in the Elixir VM through the native BEAM adapter
-`:eyg_json_bridge_beam` of [`eyg_json_bridge`](https://github.com/kek/eyg-json-bridge)
-v0.3.0, pinned by git tag in `mix.lock`. The bridge composes the upstream Hex
-packages `eyg_parser`, `eyg_analysis` and `eyg_interpreter`; all are Gleam
-source compiled by `mix_gleam`. The same bridge core also backs the bridge's
-Node worker, so contract rules have one implementation.
+`FactorioControl.Eyg.Evaluator` embeds upstream EYG in the Elixir VM, following
+the upstream guide for embedding EYG in Erlang programs. The Hex packages
+`eyg_parser`, `eyg_analysis` and `eyg_interpreter` publish Gleam source only;
+`mix_gleam` compiles them, and `mix.lock` pins them with their dependencies.
 
-The adapter converts host-owned JSON-shaped contracts (string, integer, boolean,
-list and exact record shapes; at most 32 effects, depth 8 and 64 fields) into an
-EYG effect context. It parses, rejects references/imports and type-checks before
-running anything, so ungranted effects and wrong argument shapes never start. At
-each unhandled effect it sends the JSON argument to its owner, validates the
-reply exactly and resumes with `Ok(value)` or `Error(message)`. A reply that does
-not match its contract is a terminal adapter failure, not a catchable error.
-Effect values and final results must stay within ±2⁵³−1; intermediate arithmetic
-may use BEAM bignums, unlike the earlier JavaScript evaluator. The adapter also
-enforces the effect budget and payload limits.
+The evaluator converts host-owned JSON-shaped contracts (string, integer,
+boolean, list and exact record shapes; at most 32 effects, depth 8 and 64 fields)
+into an EYG effect context. It parses, rejects references/imports, and type-checks
+before running anything, so ungranted effects and wrong argument shapes never
+start. At each unhandled effect it converts the EYG argument to the contract's
+JSON shape, calls the Elixir handler, validates the reply exactly and resumes
+with `Ok(value)` or `Error(message)`. A reply that does not match its contract is
+a fatal host failure, not a catchable error. Effect values and final results must
+stay within ±2⁵³−1; intermediate arithmetic may use BEAM bignums, unlike the
+earlier JavaScript evaluator. Requests and replies are limited to 64,000 bytes
+each and 8,000,000 bytes per direction; error replies to 4,000 bytes.
 
-Each run has a guardian process, which enforces the deadline (at most 300
-seconds), cancellation and owner-death cleanup, and a linked evaluator process
-with a heap cap (128 MiB here) that holds the continuation. The continuation is
-lost when the run ends. `FactorioControl.Eyg.Evaluator` is the Factorio side: it
-runs effect handlers under the same deadline, replies to the adapter, records the
-trace and maps outcomes to host results. Elixir retains credentials, RCON, grants,
-deadlines, traces and game action recovery.
+Evaluation runs in a separate process with a heap cap (128 MiB by default). The
+caller enforces the wall-clock deadline and kills that process on completion,
+timeout or caller death, so a pure infinite loop cannot block the host. The
+continuation stays inside that process and is lost when the run ends. Elixir
+retains credentials, RCON, grants, deadlines, traces and game action recovery.
 
 Every effect returns EYG `Result(value, String)`. `Inspect({radius})` returns a
 fixed `{tick, inventory, entities, truncated}` record. Inventory/output stacks
@@ -180,7 +177,7 @@ resuming as an ordinary error. Requests are never automatically retried or
 reconnected. IDs do not deduplicate lost acceptance replies.
 
 `Wait` polls game ticks (not elapsed wall time), with a separate 65-second wall
-limit. The whole run defaults to and is capped at 300 seconds, including
+limit. The whole run defaults to 300 seconds, maximum 600 seconds, including
 handlers, and allows at most 100 external effects. These are distinct from each
 action's in-game tick deadline. A paused game can reach a wall deadline without
 advancing its simulation deadline.

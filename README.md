@@ -106,13 +106,12 @@ Both production scenarios use the existing POC iron drill at `(29,-42)`, furnace
 
 ## EYG programs
 
-EYG programs run inside the Elixir VM through the native BEAM adapter of
-[`eyg_json_bridge`](https://github.com/kek/eyg-json-bridge), pinned to the
-`v0.3.0` git tag in `mix.lock`. The bridge composes the upstream Hex packages
-`eyg_parser` 0.5.2, `eyg_analysis` 3.0.1 and `eyg_interpreter` 9.0.0, which parse,
-type-check and evaluate programs. All of them are Gleam source, so the build
-compiles them with [`mix_gleam`](https://github.com/gleam-lang/mix_gleam).
-One-time setup needs the `gleam` compiler on `PATH` (tested with Gleam 1.19.2):
+EYG programs run inside the Elixir VM. The upstream Hex packages
+`eyg_parser` 0.5.2, `eyg_analysis` 3.0.1 and `eyg_interpreter` 9.0.0 parse,
+type-check and evaluate them; `mix.lock` pins them and their dependencies. These
+packages publish Gleam source only, so the build compiles them with
+[`mix_gleam`](https://github.com/gleam-lang/mix_gleam). One-time setup needs the
+`gleam` compiler on `PATH` (tested with Gleam 1.19.2):
 
 ```sh
 mix archive.install hex mix_gleam
@@ -125,17 +124,16 @@ time (`HEX_HTTP_CONCURRENCY=1` unless already set), because parallel fetches can
 race with mix_gleam's dependency rewriting and leave a package half extracted.
 If that happened in an earlier checkout, delete `deps/` and fetch again.
 
-The bridge adapter (`:eyg_json_bridge_beam`) turns the JSON-shaped effect
-contracts into EYG types, rejects programs that use ungranted effects or wrong
-shapes before they run, validates every effect argument and host reply exactly,
-and enforces the effect budget and payload limits. A guardian process enforces
-the deadline and stops evaluation if its owner dies; the evaluator process holds
-the continuation under a heap cap (128 MiB here). `FactorioControl.Eyg.Evaluator`
-is the Factorio side: it calls effect handlers under the run deadline, sends
-replies, writes the trace and maps adapter outcomes to host results. Effect
-values and final results stay within ±2⁵³−1; arithmetic in between can use larger
-BEAM integers. Continuations exist only in the evaluator process and are lost
-when a run ends.
+`FactorioControl.Eyg.Evaluator` turns the JSON-shaped effect contracts into EYG
+types, rejects programs that use ungranted effects or wrong shapes before they
+run, validates every effect argument and host reply exactly, and drives the
+interpreter's pause/resume loop. Each run gets its own process with a 128 MiB
+heap cap; the caller kills it at the wall-clock deadline or if the caller dies.
+Effect requests and replies stay within the safe integer range (±2⁵³−1), as do
+final results; arithmetic in between can use larger BEAM integers. Upstream EYG
+owns language semantics and continuations. Factorio keeps effect grants,
+handlers, RCON, receipts, action recovery and deadlines. Continuations exist
+only in the evaluation process and are lost when a run ends.
 
 ### Run a program
 
@@ -158,7 +156,7 @@ plates; collected plates remain in the bot inventory.
 `--effects` is the host's capability selection, checked before evaluation; the
 program cannot add effects. Omit it to enable all available effects, including
 the read-only inspections below and the bounded expansion effects.
-`--timeout` (milliseconds, default and maximum 300000),
+`--timeout` (milliseconds, default 300000, maximum 600000),
 `--max-effects` (default/maximum 100), `--host`, `--port` and `--trace` are
 available. No arbitrary Lua, RCON, shell, filesystem or network effect is exposed.
 
