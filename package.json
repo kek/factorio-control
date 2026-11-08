@@ -1,0 +1,12 @@
+{
+  "name": "factorio-control",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Node runtime dependency for the Factorio Control EYG host",
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@kek/eyg-runtime": "https://github.com/kek/eyg-runtime/releases/download/v0.1.1/kek-eyg-runtime-0.1.1.tgz"
+  }
+}

@@ -2,11 +2,7 @@ defmodule FactorioControl.EygTest do
   use ExUnit.Case, async: true
   alias FactorioControl.{Eyg, Eyg.Worker}
 
-  @worker System.get_env("EYG_WORKER") ||
-            Path.expand(
-              "../../config/pi/agent/extensions/eyg-action/portable-worker.mjs",
-              __DIR__
-            )
+  @worker FactorioControl.Eyg.Worker.path()
 
   defp options(extra), do: Keyword.merge([worker: @worker, timeout: 5000], extra)
   defp ok(data, tick \\ 1), do: {:ok, %{"ok" => true, "tick" => tick, "data" => data}}

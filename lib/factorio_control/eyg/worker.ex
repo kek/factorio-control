@@ -1,11 +1,33 @@
 defmodule FactorioControl.Eyg.Worker do
   @moduledoc "Bounded host for the shared EYG NDJSON worker; never forwards raw Lua."
   @frame_limit 64_000
+  @default_worker Path.expand(
+                    "../../../node_modules/@kek/eyg-runtime/node/worker.mjs",
+                    __DIR__
+                  )
+
+  @doc "Resolve an explicit worker, EYG_WORKER, or the checkout-local runtime package."
+  def path(opts \\ []) do
+    worker = Keyword.get(opts, :worker) || System.get_env("EYG_WORKER") || @default_worker
+
+    unless is_binary(worker) and worker != "",
+      do: raise(ArgumentError, "worker must be a nonempty path")
+
+    Path.expand(worker)
+  end
 
   def run(code, contracts, handler, opts \\ []) do
     timeout = Keyword.get(opts, :timeout, 300_000)
     max_effects = Keyword.get(opts, :max_effects, 100)
-    worker = Keyword.fetch!(opts, :worker)
+    worker = path(opts)
+
+    unless File.regular?(worker),
+      do:
+        raise(
+          ArgumentError,
+          "EYG worker does not exist: #{worker}. Run npm ci --ignore-scripts, or set EYG_WORKER."
+        )
+
     node = System.find_executable("node") || raise "Node is required"
 
     unless is_integer(timeout) and timeout in 1..600_000 and
