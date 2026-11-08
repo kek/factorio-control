@@ -15,7 +15,7 @@ local buildable = {
   ["small-electric-pole"] = true, ["electric-mining-drill"] = true,
   ["boiler"] = true, ["steam-engine"] = true, ["offshore-pump"] = true,
   ["pipe"] = true, ["pipe-to-ground"] = true, ["lab"] = true,
-  ["gun-turret"] = true, ["stone-wall"] = true
+  ["gun-turret"] = true, ["stone-wall"] = true, ["small-lamp"] = true
 }
 local consumables = {["firearm-magazine"] = "ammo", ["automation-science-pack"] = "tool"}
 local function supported_product(name)

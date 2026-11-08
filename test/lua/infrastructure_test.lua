@@ -167,7 +167,7 @@ end)
 test('expanded build allowlist and rejected placement conserves items', function()
   for _, item in ipairs({'splitter', 'underground-belt', 'assembling-machine-1', 'inserter',
     'small-electric-pole', 'electric-mining-drill', 'boiler', 'steam-engine', 'offshore-pump',
-    'pipe', 'pipe-to-ground', 'lab', 'gun-turret', 'stone-wall'}) do
+    'pipe', 'pipe-to-ground', 'lab', 'gun-turret', 'stone-wall', 'small-lamp'}) do
     build(item, 1, 1)
     ok('build', {item = item, position = {x = 0.5, y = 0.5}})
     eq(main.items[item], 9)
@@ -184,6 +184,25 @@ test('expanded build allowlist and rejected placement conserves items', function
   surface.create_entity = function() return nil end
   denied('blocked', 'build', {item = 'splitter', position = {x = 0, y = 0.5}})
   eq(main.items.splitter, 10)
+end)
+
+test('lamps require owned stock, aligned reachable unblocked placement', function()
+  build('small-lamp', 1, 1)
+  local args = {item = 'small-lamp', position = {x = 0.5, y = 0.5}}
+  main.items['small-lamp'] = 0
+  denied('no_item', 'build', args)
+  main.items['small-lamp'] = 1
+  args.position.x = 20.5
+  denied('out_of_reach', 'build', args)
+  args.position.x = 0
+  denied('invalid_argument', 'build', args)
+  args.position.x = 0.5
+  surface.can_place_entity = function() return false end
+  denied('blocked', 'build', args)
+  eq(main.items['small-lamp'], 1); eq(#created, 0)
+  surface.can_place_entity = function() return true end
+  ok('build', args)
+  eq(main.items['small-lamp'], 0); eq(#created, 1)
 end)
 
 test('underground endpoints use explicit input/output types without arbitrary prototypes', function()
