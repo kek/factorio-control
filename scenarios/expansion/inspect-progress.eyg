@@ -1,0 +1,5 @@
+// Read-only progress: factory stock, guarded brick production, and research.
+let coal=(items)->{!list_fold(items,0,(i,n)->{match !equal(i.name,"coal") {True(_)->{!int_add(n,i.count)} | (_)->{n}}})}
+let machine=(name,x,y)->{match perform InspectEntity({name:name,position:{x2:x,y2:y}}) {Ok(s)->{{name:name,x:x,y:y,status:s.entity.status,fuel:coal(s.entity.fuel),error:""}} Error(e)->{{name:name,x:x,y:y,status:"missing",fuel:0,error:e}}}}
+let chest=(x,y)->{match perform InspectEntity({name:"iron-chest",position:{x2:x,y2:y}}) {Ok(s)->{{x:x,y:y,items:s.entity.inventory,error:""}} Error(e)->{{x:x,y:y,items:[],error:e}}}}
+{bricks:[chest(9,-79),chest(17,-79),chest(25,-79),chest(9,-63),chest(17,-63),chest(25,-63)],machines:[machine("burner-mining-drill",8,-88),machine("burner-mining-drill",16,-88),machine("burner-mining-drill",24,-88),machine("burner-mining-drill",8,-72),machine("burner-mining-drill",16,-72),machine("burner-mining-drill",24,-72)],products:[chest(125,-55),chest(111,-51),chest(111,-35),chest(109,-13)]}

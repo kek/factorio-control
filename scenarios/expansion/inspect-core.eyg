@@ -1,0 +1,12 @@
+// Read-only inspection of the bus/workshop and the nine armed guards.
+let turret=(x,y)->{match perform InspectMachine({name:"gun-turret",position:{x2:x,y2:y}}) {
+ Ok(s)->{{x2:x,y2:y,health:s.machine.health_milli,ammo:s.machine.ammo,status:s.machine.status,error:""}}
+ Error(e)->{{x2:x,y2:y,health:0,ammo:[],status:"missing",error:e}}
+}}
+let machine=(y)->{match perform InspectMachine({name:"assembling-machine-1",position:{x2:111,y2:y}}) {
+ Ok(s)->{{recipe:s.machine.recipe,status:s.machine.status,health:s.machine.health_milli,energy:s.machine.energy_joules,network:s.machine.network_id,error:""}}
+ Error(e)->{{recipe:"missing",status:"missing",health:0,energy:0,network:0,error:e}}
+}}
+let chest=(x,y)->{match perform InspectEntity({name:"iron-chest",position:{x2:x,y2:y}}) {Ok(s)->{{x2:x,y2:y,items:s.entity.inventory,error:""}} Error(e)->{{x2:x,y2:y,items:[],error:e}}}}
+let bot=match perform InspectBot({}) {Ok(s)->{{health:s.bot.health_milli,x:s.bot.x_milli,y:s.bot.y_milli,inventory:s.bot.inventory}} Error(_)->{{health:0,x:0,y:0,inventory:[]}}}
+{bot:bot,products:[chest(125,-55),chest(111,-51),chest(111,-35),chest(109,-13)],machines:[machine(-61),machine(-45),machine(-29)],turrets:[turret(80,86),turret(108,46),turret(62,-72),turret(34,-76),turret(124,-48),turret(98,-72),turret(124,-72),turret(98,-12),turret(124,-12)]}

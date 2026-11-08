@@ -1,0 +1,18 @@
+// Read-only feasibility and material survey. No world mutations.
+let recipe = (name) -> {match perform InspectRecipe({name: name}) {
+ Ok(s) -> {{name: name, enabled: s.recipe.enabled, craftable: s.recipe.craftable, ingredients: s.recipe.ingredients, products: s.recipe.products, error: ""}}
+ Error(e) -> {{name: name, enabled: False({}), craftable: 0, ingredients: [], products: [], error: e}}
+}}
+let resource = (name) -> {match perform InspectResources({item: name, radius: 64}) {
+ Ok(s) -> {
+  let best = !list_fold(s.resources, {amount: 0, x: 0, y: 0}, (r, b) -> {match !int_compare(r.amount, b.amount) {Gt(_) -> {{amount: r.amount, x: r.x_milli, y: r.y_milli}} | (_) -> {b}}})
+  {name: name, best: best, truncated: s.truncated, error: ""}
+ }
+ Error(e) -> {{name: name, best: {amount: 0, x: 0, y: 0}, truncated: False({}), error: e}}
+}}
+let bot = match perform InspectBot({}) {Ok(s) -> {{x: s.bot.x_milli, y: s.bot.y_milli, inventory: s.bot.inventory, actions: s.bot.active_actions, error: ""}} Error(e) -> {{x: 0, y: 0, inventory: [], actions: [], error: e}}}
+{
+ bot: bot,
+ resources: [resource("iron-ore"), resource("copper-ore"), resource("coal"), resource("stone")],
+ recipes: [recipe("splitter"), recipe("underground-belt"), recipe("assembling-machine-1"), recipe("inserter"), recipe("small-electric-pole"), recipe("boiler"), recipe("steam-engine"), recipe("offshore-pump"), recipe("pipe"), recipe("electronic-circuit"), recipe("copper-cable"), recipe("firearm-magazine"), recipe("gun-turret"), recipe("stone-wall"), recipe("automation-science-pack"), recipe("lab")]
+}

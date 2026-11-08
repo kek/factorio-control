@@ -36,6 +36,9 @@ portal; install it locally first, enable it, and restart the client.
 When updating the mod, update both installations together. In this development
 setup the server and standalone client both link to `mods/factorio-control`, so
 edits reach both automatically; restart both processes to load the new Lua code.
+Server capability work is validated against the headless server and typed EYG;
+these client joining instructions are not a requirement to inspect or verify the
+graphical client for each change.
 
 RCON listens on TCP port 27015; game clients use UDP port 34197. RCON is unencrypted: keep it on a trusted local/private network. Lua console commands disable achievements in the save; Factorio may require repeating the first command to confirm. This client does not repeat commands automatically.
 
@@ -125,8 +128,8 @@ reported `before`/`after` counts describe furnace output after collecting the ol
 plates; collected plates remain in the bot inventory.
 
 `--effects` is the host's capability selection, checked before evaluation; the
-program cannot add effects. Omit it to enable all fifteen effects, including the
-read-only inspections below.
+program cannot add effects. Omit it to enable all available effects, including
+the read-only inspections below and the bounded expansion effects.
 `--worker`, `--timeout` (milliseconds, default 300000, maximum 600000),
 `--max-effects` (default/maximum 100), `--host`, `--port` and `--trace` are
 available. No arbitrary Lua, RCON, shell, filesystem or network effect is exposed.
@@ -181,7 +184,7 @@ RCON/Lua or Bot API calls are not a gameplay or planning fallback. Mod deploymen
 and Port-owned server lifecycle operations are separate from gameplay.
 
 `Craft({recipe,count,timeout_ticks})` crafts 1–100 batches of an unlocked recipe
-with a single guaranteed ordinary item output. `InspectRecipe({name})` exposes
+with a single guaranteed supported item output (ordinary items, full firearm magazines or red science packs). `InspectRecipe({name})` exposes
 categories, ingredient quantities, products, base crafting time and the number
 of batches affordable from **directly available normal-quality ingredients**.
 Craft intermediate items explicitly. This implementation uses a mod-owned crafting action rather than a player
@@ -230,9 +233,10 @@ cancellation, deadlines, inventory capacity and recipe restrictions.
 
 ## Autonomous coal refuelling (current save)
 
-The iron line now has a permanent coal supply: **184 transport belts and 14
-coal-feeding burner inserters**. The two existing coal drills face south onto
-the belt and automatically refuel from that stream. Each iron lane receives
+The initial permanent coal supply used **184 transport belts and 14
+coal-feeding burner inserters**. The two original coal drills face south onto
+the belt and automatically refuel from that stream. The expansion below adds
+two more coal drills and branches for steam power and stone bricks. Each iron lane receives
 coal for its drill, furnace and original plate-output inserter. No background
 bot servicing process is needed.
 
@@ -250,3 +254,26 @@ must have room.
 `scenarios/iron-pipeline/inspect.eyg` inspects the existing line;
 `scenarios/iron-pipeline/refuel/verify.eyg` checks fresh plate growth in every
 lane. Execution evidence is retained in the ignored `tmp/refuel/` directory.
+
+## Bus, workshop and starter defenses
+
+The expanded save has an iron/copper bus, three powered assembler branches for
+gears, firearm magazines and belts, a steam plant/two-lab grid, and guarded
+resource production. The workshop buffers each reached 100 products, supplied
+subsequent construction and turret loads, and refilled from the iron bus.
+
+A 106-wall enclosure surrounds the bus/workshop, with a turret-covered two-tile
+service opening. Nine armed turrets cover this enclosure and the iron, stone,
+coal and power areas. The resource/power outposts are not all inside the wall
+rectangle; copper supply is currently buffer-fed and turret reloads remain
+inventory transfers, not a claimed automatic perimeter loader.
+
+See [the current layout and safe checks](scenarios/expansion/README.md) and
+[the bounded expansion effect contracts](docs/expansion-effects.md). Historical
+construction/recovery programs and exclusive traces are kept in ignored
+`tmp/expansion/`; do not replay them against the completed factory.
+
+Before shutting down the sandbox runtime, stop its server through the Elixir
+Port owner and confirm save completion/exit. A backend's short forced-cleanup
+grace is not a guaranteed save boundary. Recover an interrupted save only from
+a validated save/autosave, retaining the old files before replacement.

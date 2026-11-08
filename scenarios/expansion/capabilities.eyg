@@ -1,0 +1,14 @@
+// Read-only live validation of the deployed expansion contract.
+let tech = (name) -> {match perform InspectTechnology({name: name}) {
+ Ok(s) -> {{name: name, researched: s.technology.researched, enabled: s.technology.enabled, prerequisites: s.technology.prerequisites, trigger: s.technology.trigger_type, item: s.technology.trigger_item, entity: s.technology.trigger_entity, trigger_count: s.technology.trigger_count, units: s.technology.count, ingredients: s.technology.ingredients, error: ""}}
+ Error(e) -> {{name: name, researched: False({}), enabled: False({}), prerequisites: [], trigger: "", item: "", entity: "", trigger_count: 0, units: 0, ingredients: [], error: e}}
+}}
+let area = match perform InspectArea({position: {x2: 124, y2: 42}, radius: 8}) {
+ Ok(s) -> {{tiles_complete: s.tiles_complete, truncated: s.truncated, entities: !list_fold(s.entities, 0, (_,n) -> {!int_add(n,1)}), water_tiles: !list_fold(s.tiles, 0, (t,n) -> {match t.water {True(_) -> {!int_add(n,1)} | (_) -> {n}}}), error: ""}}
+ Error(e) -> {{tiles_complete: False({}), truncated: False({}), entities: 0, water_tiles: 0, error: e}}
+}
+let coal = match perform InspectMachine({name: "burner-mining-drill", position: {x2: 116, y2: 36}}) {
+ Ok(s) -> {{status: s.machine.status, fuel: s.machine.fuel, health: s.machine.health_milli, error: ""}}
+ Error(e) -> {{status: "unavailable", fuel: [], health: 0, error: e}}
+}
+{area: area, coal: coal, technologies: [tech("steam-power"), tech("electronics"), tech("automation-science-pack"), tech("automation"), tech("logistics"), tech("stone-wall"), tech("gun-turret"), tech("electric-mining-drill")]}

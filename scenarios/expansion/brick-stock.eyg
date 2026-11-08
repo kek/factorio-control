@@ -1,0 +1,9 @@
+// Read-only stock check. Counts only observed normal-quality stone bricks.
+let chest=(x,y)->{match perform InspectEntity({name:"iron-chest",position:{x2:x,y2:y}}) {
+ Ok(s)->{{x2:x,y2:y,count:!list_fold(s.entity.inventory,0,(i,n)->{match !equal({name:i.name,quality:i.quality},{name:"stone-brick",quality:"normal"}) {True(_)->{!int_add(n,i.count)} | (_)->{n}}}),error:""}}
+ Error(e)->{{x2:x,y2:y,count:0,error:e}}
+}}
+let chests=[chest(9,-79),chest(17,-79),chest(25,-79),chest(9,-63),chest(17,-63),chest(25,-63)]
+let errors=!list_fold(chests,0,(c,n)->{match !equal(c.error,"") {True(_)->{n} | (_)->{!int_add(n,1)}}})
+let bricks=!list_fold(chests,0,(c,n)->{!int_add(n,c.count)})
+{success:!equal(errors,0),bricks:bricks,chests:chests}
