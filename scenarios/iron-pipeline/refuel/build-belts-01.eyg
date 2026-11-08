@@ -1,0 +1,42 @@
+// Staged placement; do not rerun a completed or uncertain phase.
+let bind = (r, next) -> {match r {Ok(v) -> {next(v)} Error(e) -> {Error(e)}}}
+let unit = (r) -> {bind(r, (_) -> {Ok({})})}
+let tiles = [
+ {x2: 117, y2: 39, direction: "east", walk: True({})},
+ {x2: 119, y2: 39, direction: "east", walk: False({})},
+ {x2: 121, y2: 39, direction: "east", walk: False({})},
+ {x2: 123, y2: 39, direction: "east", walk: True({})},
+ {x2: 125, y2: 39, direction: "north", walk: True({})},
+ {x2: 125, y2: 37, direction: "north", walk: False({})},
+ {x2: 125, y2: 35, direction: "north", walk: True({})},
+ {x2: 125, y2: 33, direction: "west", walk: True({})},
+ {x2: 123, y2: 33, direction: "west", walk: False({})},
+ {x2: 121, y2: 33, direction: "west", walk: True({})},
+ {x2: 119, y2: 33, direction: "west", walk: False({})},
+ {x2: 117, y2: 33, direction: "west", walk: False({})},
+ {x2: 115, y2: 33, direction: "west", walk: True({})},
+ {x2: 113, y2: 33, direction: "west", walk: False({})},
+ {x2: 111, y2: 33, direction: "south", walk: True({})},
+ {x2: 111, y2: 35, direction: "south", walk: True({})},
+ {x2: 111, y2: 37, direction: "south", walk: False({})},
+ {x2: 111, y2: 39, direction: "south", walk: False({})},
+ {x2: 111, y2: 41, direction: "west", walk: True({})},
+ {x2: 109, y2: 41, direction: "west", walk: False({})},
+ {x2: 107, y2: 41, direction: "west", walk: False({})},
+ {x2: 105, y2: 41, direction: "west", walk: True({})},
+ {x2: 103, y2: 41, direction: "west", walk: False({})},
+ {x2: 101, y2: 41, direction: "west", walk: False({})},
+ {x2: 99, y2: 41, direction: "west", walk: True({})},
+ {x2: 97, y2: 41, direction: "west", walk: False({})},
+ {x2: 95, y2: 41, direction: "west", walk: False({})},
+ {x2: 93, y2: 41, direction: "west", walk: True({})},
+ {x2: 91, y2: 41, direction: "west", walk: False({})},
+ {x2: 89, y2: 41, direction: "west", walk: False({})},
+ {x2: 87, y2: 41, direction: "west", walk: True({})},
+ {x2: 85, y2: 41, direction: "west", walk: False({})}
+]
+let job = !list_fold(tiles, Ok({}), (tile, previous) -> {bind(previous, (_) -> {
+ let ready = match tile.walk {True(_) -> {unit(perform WalkTo({position: {x2: tile.x2, y2: tile.y2}, timeout_ticks: 1800}))} | (_) -> {Ok({})}}
+ bind(ready, (_) -> {unit(perform Build({position: {x2: tile.x2, y2: tile.y2}, item: "transport-belt", direction: tile.direction}))})
+})})
+match job {Ok(_) -> {{success: True({}), error: ""}} Error(e) -> {{success: False({}), error: e}}}

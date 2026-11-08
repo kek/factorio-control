@@ -1,0 +1,8 @@
+// One-time materials: 184 belts. Inserters were crafted in the pilot stage.
+let bind = (r, next) -> {match r {Ok(v) -> {next(v)} Error(e) -> {Error(e)}}}
+let job = bind(perform Craft({recipe: "iron-gear-wheel", count: 92, timeout_ticks: 3600}), (_) -> {
+ perform Craft({recipe: "transport-belt", count: 92, timeout_ticks: 3600})
+})
+let result = match job {Ok(_) -> {{success: True({}), error: ""}} Error(e) -> {{success: False({}), error: e}}}
+let inventory = match perform InspectBot({}) {Ok(s) -> {s.bot.inventory} Error(_) -> {[]}}
+{success: result.success, error: result.error, inventory: inventory}

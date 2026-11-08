@@ -1,0 +1,35 @@
+// Finish the fuel hardware. The west-side lane-25 output feeder already exists.
+let bind = (r, next) -> {match r {Ok(v) -> {next(v)} Error(e) -> {Error(e)}}}
+let unit = (r) -> {bind(r, (_) -> {Ok({})})}
+let sequence = (steps) -> {!list_fold(steps, Ok({}), (step, result) -> {bind(result, step)})}
+let walk = (x, y) -> {unit(perform WalkTo({position: {x2: x, y2: y}, timeout_ticks: 1800}))}
+let build = (x, y, direction) -> {unit(perform Build({position: {x2: x, y2: y}, item: "burner-inserter", direction: direction}))}
+let connection = (x, y) -> {match perform InspectEntity({name: "burner-inserter", position: {x2: x, y2: y}}) {
+ Ok(s) -> {{x2: x, y2: y, pickup: s.entity.pickup_target, drop: s.entity.drop_target, error: ""}}
+ Error(e) -> {{x2: x, y2: y, pickup: "", drop: "", error: e}}
+}}
+let job = sequence([
+ (_) -> {walk(78, -68)}, (_) -> {walk(46, -70)}, (_) -> {walk(46, -79)},
+ (_) -> {build(47, -85, "west")}, (_) -> {build(47, -81, "west")},
+ (_) -> {walk(46, -70)}, (_) -> {walk(54, -70)}, (_) -> {walk(54, -79)},
+ (_) -> {build(55, -85, "west")}, (_) -> {build(55, -81, "west")},
+ (_) -> {walk(54, -70)}, (_) -> {build(57, -77, "west")},
+ (_) -> {walk(70, -70)}, (_) -> {walk(70, -80)},
+ (_) -> {build(63, -85, "west")}, (_) -> {build(63, -81, "west")},
+ (_) -> {walk(70, -70)}, (_) -> {build(69, -77, "east")},
+ (_) -> {walk(78, -70)}, (_) -> {walk(78, -80)},
+ (_) -> {build(71, -85, "west")}, (_) -> {build(71, -81, "west")},
+ (_) -> {walk(78, -70)}, (_) -> {build(77, -77, "east")},
+ (_) -> {walk(58, -68)}, (_) -> {walk(112, 42)},
+ (_) -> {build(113, 37, "west")}, (_) -> {walk(126, 42)},
+ (_) -> {build(123, 37, "east")}
+])
+let result = match job {Ok(_) -> {{success: True({}), error: ""}} Error(e) -> {{success: False({}), error: e}}}
+{
+ success: result.success, error: result.error,
+ connections: [connection(47, -85), connection(47, -81), connection(49, -77),
+ connection(55, -85), connection(55, -81), connection(57, -77),
+ connection(63, -85), connection(63, -81), connection(69, -77),
+ connection(71, -85), connection(71, -81), connection(77, -77),
+ connection(113, 37), connection(123, 37)]
+}

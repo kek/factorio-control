@@ -1,0 +1,19 @@
+// One-time pilot. Do not rerun without checking inventory and the placed inserter.
+let bind = (r, next) -> {match r {Ok(v) -> {next(v)} Error(e) -> {Error(e)}}}
+let unit = (r) -> {bind(r, (_) -> {Ok({})})}
+let sequence = (steps) -> {!list_fold(steps, Ok({}), (step, result) -> {bind(result, step)})}
+let job = sequence([
+ (_) -> {unit(perform WalkTo({position: {x2: 78, y2: -68}, timeout_ticks: 1800}))},
+ (_) -> {unit(perform WalkTo({position: {x2: 54, y2: -70}, timeout_ticks: 1800}))},
+ (_) -> {unit(perform Transfer({position: {x2: 51, y2: -75}, entity: "iron-chest", inventory: "main", direction: "take", item: "iron-plate", count: 180}))},
+ (_) -> {unit(perform Transfer({position: {x2: 59, y2: -75}, entity: "iron-chest", inventory: "main", direction: "take", item: "iron-plate", count: 100}))},
+ (_) -> {unit(perform Craft({recipe: "iron-gear-wheel", count: 14, timeout_ticks: 1800}))},
+ (_) -> {unit(perform Craft({recipe: "burner-inserter", count: 14, timeout_ticks: 1800}))},
+ (_) -> {unit(perform Build({position: {x2: 49, y2: -77}, item: "burner-inserter", direction: "west"}))}
+])
+let result = match job {Ok(_) -> {{success: True({}), error: ""}} Error(e) -> {{success: False({}), error: e}}}
+let connection = match perform InspectEntity({name: "burner-inserter", position: {x2: 49, y2: -77}}) {
+ Ok(s) -> {{status: s.entity.status, pickup: s.entity.pickup_target, drop: s.entity.drop_target, error: ""}}
+ Error(e) -> {{status: "missing", pickup: "", drop: "", error: e}}
+}
+{result: result, connection: connection}

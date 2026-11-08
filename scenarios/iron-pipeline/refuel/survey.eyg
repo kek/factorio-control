@@ -1,0 +1,18 @@
+let bind = (r, next) -> {match r {Ok(v) -> {next(v)} Error(e) -> {Error(e)}}}
+let unit = (r) -> {bind(r, (_) -> {Ok({})})}
+let points = [
+ {x2: 41, y2: -70}, {x2: 41, y2: -89}, {x2: 41, y2: -73},
+ {x2: 41, y2: -57}, {x2: 41, y2: -41}, {x2: 41, y2: -25},
+ {x2: 41, y2: -9}, {x2: 41, y2: 7}, {x2: 41, y2: 23},
+ {x2: 41, y2: 41}, {x2: 57, y2: 41}, {x2: 73, y2: 41},
+ {x2: 89, y2: 41}, {x2: 105, y2: 41}, {x2: 111, y2: 41}
+]
+let job = !list_fold(points, Ok({}), (p, previous) -> {bind(previous, (_) -> {
+ bind(perform WalkTo({position: p, timeout_ticks: 1800}), (_) -> {unit(perform Inspect({radius: 4}))})
+})})
+let result = match job {Ok(_) -> {{success: True({}), error: ""}} Error(e) -> {{success: False({}), error: e}}}
+let bot = match perform InspectBot({}) {
+ Ok(s) -> {{x: s.bot.x_milli, y: s.bot.y_milli, inventory: s.bot.inventory}}
+ Error(_) -> {{x: 0, y: 0, inventory: []}}
+}
+{result: result, bot: bot}

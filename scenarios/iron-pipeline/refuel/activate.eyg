@@ -1,0 +1,28 @@
+// One-time commissioning. Surplus starting coal stays in the bot inventory.
+// Leaving three coal per drill lets us observe genuine automatic replenishment.
+let bind = (r, next) -> {match r {Ok(v) -> {next(v)} Error(e) -> {Error(e)}}}
+let unit = (r) -> {bind(r, (_) -> {Ok({})})}
+let sequence = (steps) -> {!list_fold(steps, Ok({}), (step, result) -> {bind(result, step)})}
+let coal = (items) -> {!list_fold(items, 0, (s, n) -> {match !equal(s.name, "coal") {True(_) -> {!int_add(n, s.count)} | (_) -> {n}}})}
+let reserve = (p) -> {bind(perform InspectEntity({name: "burner-mining-drill", position: p}), (s) -> {
+ let n = coal(s.entity.fuel)
+ match !int_compare(n, 3) {Gt(_) -> {unit(perform Transfer({position: p, entity: "burner-mining-drill", inventory: "fuel", direction: "take", item: "coal", count: !int_subtract(n, 3)}))} | (_) -> {Ok({})}}
+})}
+let machine = (name, p) -> {match perform InspectEntity({name: name, position: p}) {
+ Ok(s) -> {{status: s.entity.status, coal: coal(s.entity.fuel), drop: s.entity.drop_target, error: ""}}
+ Error(e) -> {{status: "missing", coal: 0, drop: "", error: e}}
+}}
+let job = sequence([
+ (_) -> {unit(perform Rotate({name: "burner-mining-drill", position: {x2: 116, y2: 36}, direction: "south"}))},
+ (_) -> {unit(perform Rotate({name: "burner-mining-drill", position: {x2: 120, y2: 36}, direction: "south"}))},
+ (_) -> {reserve({x2: 116, y2: 36})}, (_) -> {reserve({x2: 120, y2: 36})},
+ (_) -> {unit(perform Wait({ticks: 1200}))}
+])
+let result = match job {Ok(_) -> {{success: True({}), error: ""}} Error(e) -> {{success: False({}), error: e}}}
+{
+ success: result.success, error: result.error,
+ coal_left: machine("burner-mining-drill", {x2: 116, y2: 36}),
+ coal_right: machine("burner-mining-drill", {x2: 120, y2: 36}),
+ feed_left: machine("burner-inserter", {x2: 113, y2: 37}),
+ feed_right: machine("burner-inserter", {x2: 123, y2: 37})
+}

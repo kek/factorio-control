@@ -1,0 +1,18 @@
+// Read-only planning; return plain records, not Result variants, for JSON output.
+let recipe = (name) -> {match perform InspectRecipe({name: name}) {
+ Ok(s) -> {{name: name, enabled: s.recipe.enabled, craftable: s.recipe.craftable, ingredients: s.recipe.ingredients, products: s.recipe.products, error: ""}}
+ Error(e) -> {{name: name, enabled: False({}), craftable: 0, ingredients: [], products: [], error: e}}
+}}
+let machine = (name, position) -> {match perform InspectEntity({name: name, position: position}) {
+ Ok(s) -> {{status: s.entity.status, fuel: s.entity.fuel, pickup: s.entity.pickup_target, drop: s.entity.drop_target, error: ""}}
+ Error(e) -> {{status: "missing", fuel: [], pickup: "", drop: "", error: e}}
+}}
+let bot = match perform InspectBot({}) {Ok(s) -> {{inventory: s.bot.inventory, x: s.bot.x_milli, y: s.bot.y_milli, error: ""}} Error(e) -> {{inventory: [], x: 0, y: 0, error: e}}}
+let coal = match perform InspectResources({item: "coal", radius: 64}) {Ok(s) -> {{tiles: s.resources, truncated: s.truncated, error: ""}} Error(e) -> {{tiles: [], truncated: False({}), error: e}}}
+{
+ bot: bot, coal: coal,
+ recipes: [recipe("transport-belt"), recipe("burner-inserter"), recipe("iron-gear-wheel")],
+ coal_left: machine("burner-mining-drill", {x2: 116, y2: 36}),
+ coal_right: machine("burner-mining-drill", {x2: 120, y2: 36}),
+ output: machine("burner-inserter", {x2: 51, y2: -77})
+}
