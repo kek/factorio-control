@@ -1,0 +1,17 @@
+let waited = match perform Wait({ticks: 3600}) {Ok(_) -> {True({})} Error(_) -> {False({})}}
+let coal = (items) -> {!list_fold(items, 0, (s, n) -> {match !equal(s.name, "coal") {True(_) -> {!int_add(n, s.count)} | (_) -> {n}}})}
+let machine = (name, p) -> {match perform InspectEntity({name: name, position: p}) {
+ Ok(s) -> {{status: s.entity.status, coal: coal(s.entity.fuel), inventory: s.entity.inventory, error: ""}}
+ Error(e) -> {{status: "missing", coal: 0, inventory: [], error: e}}
+}}
+{
+ waited: waited,
+ coal_left: machine("burner-mining-drill", {x2: 116, y2: 36}),
+ coal_right: machine("burner-mining-drill", {x2: 120, y2: 36}),
+ drill25: machine("burner-mining-drill", {x2: 50, y2: -84}), furnace25: machine("stone-furnace", {x2: 50, y2: -80}), output25: machine("burner-inserter", {x2: 51, y2: -77}),
+ drill29: machine("burner-mining-drill", {x2: 58, y2: -84}), furnace29: machine("stone-furnace", {x2: 58, y2: -80}), output29: machine("burner-inserter", {x2: 59, y2: -77}),
+ drill33: machine("burner-mining-drill", {x2: 66, y2: -84}), furnace33: machine("stone-furnace", {x2: 66, y2: -80}), output33: machine("burner-inserter", {x2: 67, y2: -77}),
+ drill37: machine("burner-mining-drill", {x2: 74, y2: -84}), furnace37: machine("stone-furnace", {x2: 74, y2: -80}), output37: machine("burner-inserter", {x2: 75, y2: -77}),
+ chest25: machine("iron-chest", {x2: 51, y2: -75}), chest29: machine("iron-chest", {x2: 59, y2: -75}),
+ chest33: machine("iron-chest", {x2: 67, y2: -75}), chest37: machine("iron-chest", {x2: 75, y2: -75})
+}

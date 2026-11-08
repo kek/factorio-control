@@ -1,0 +1,28 @@
+// Observe automatic startup only: no movement, transfers, crafting or building.
+let coal = (items) -> {!list_fold(items, 0, (s, n) -> {match !equal(s.name, "coal") {True(_) -> {!int_add(n, s.count)} | (_) -> {n}}})}
+let machine = (name, p) -> {match perform InspectEntity({name: name, position: p}) {
+ Ok(s) -> {{name: name, x2: p.x2, y2: p.y2, coal: coal(s.entity.fuel), status: s.entity.status, error: ""}}
+ Error(e) -> {{name: name, x2: p.x2, y2: p.y2, coal: -1, status: "missing", error: e}}
+}}
+let chest = (x) -> {match perform InspectEntity({name: "iron-chest", position: {x2: x, y2: -75}}) {
+ Ok(s) -> {!list_fold(s.entity.inventory, 0, (stack, n) -> {match !equal(stack.name, "iron-plate") {True(_) -> {!int_add(n, stack.count)} | (_) -> {n}}})}
+ Error(_) -> {-1}
+}}
+let inspect = (_) -> {
+ let machines = [
+ machine("burner-mining-drill", {x2: 116, y2: 36}), machine("burner-mining-drill", {x2: 120, y2: 36}),
+ machine("burner-mining-drill", {x2: 50, y2: -84}), machine("stone-furnace", {x2: 50, y2: -80}), machine("burner-inserter", {x2: 51, y2: -77}),
+ machine("burner-mining-drill", {x2: 58, y2: -84}), machine("stone-furnace", {x2: 58, y2: -80}), machine("burner-inserter", {x2: 59, y2: -77}),
+ machine("burner-mining-drill", {x2: 66, y2: -84}), machine("stone-furnace", {x2: 66, y2: -80}), machine("burner-inserter", {x2: 67, y2: -77}),
+ machine("burner-mining-drill", {x2: 74, y2: -84}), machine("stone-furnace", {x2: 74, y2: -80}), machine("burner-inserter", {x2: 75, y2: -77})
+ ]
+ let fueled = !list_fold(machines, 0, (m, n) -> {match !int_compare(m.coal, 0) {Gt(_) -> {!int_add(n, 1)} | (_) -> {n}}})
+ {ready: !equal(fueled, 14), machines: machines, chests: [chest(51), chest(59), chest(67), chest(75)]}
+}
+let initial = inspect({})
+let settled = !list_fold([{}, {}, {}, {}], initial, (_, previous) -> {
+ match previous.ready {True(_) -> {previous} | (_) -> {
+  match perform Wait({ticks: 3600}) {Ok(_) -> {inspect({})} Error(_) -> {previous}}
+ }}
+})
+{success: settled.ready, machines: settled.machines, chests: settled.chests}

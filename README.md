@@ -215,8 +215,9 @@ The EYG files in `scenarios/iron-pipeline/` implement this save's starter pipeli
 These are **staged, save-specific construction programs**, not automatic retries
 or a fresh-save bootstrap. Do not rerun completed crafting/build stages blindly;
 inspect the world and inventory first. After construction the machines handle
-ore, smelting and output transfer independently. Burner equipment still needs
-coal replenishment; the coal station supplies a stock for that purpose.
+ore, smelting and output transfer independently. These initial stages relied on
+bot coal deliveries; the autonomous belt supply described below replaces that
+routine maintenance.
 
 The mod's crafting lifecycle can also be checked without the game:
 
@@ -227,16 +228,25 @@ lua test/lua/crafting_test.lua
 This additional test requires Lua 5.4 and checks material costs, timing,
 cancellation, deadlines, inventory capacity and recipe restrictions.
 
-The completed live setup was verified through EYG: each of the four output
-chests gained 16 plates over 1,200 ticks, and all drills, furnaces and output
-inserters reported working. The coal drills feed one another automatically.
-To inspect or service this existing setup (with the usual RCON and worker
-environment set):
+## Autonomous coal refuelling (current save)
 
-```sh
-mix factorio.eyg --effects InspectBot,InspectEntity scenarios/iron-pipeline/inspect.eyg
-mix factorio.eyg --effects WalkTo,Rotate,InspectEntity,Transfer scenarios/iron-pipeline/service.eyg
-```
+The iron line now has a permanent coal supply: **184 transport belts and 14
+coal-feeding burner inserters**. The two existing coal drills face south onto
+the belt and automatically refuel from that stream. Each iron lane receives
+coal for its drill, furnace and original plate-output inserter. No background
+bot servicing process is needed.
 
-Servicing is a bounded EYG run, not a background daemon; the iron burners still
-need periodic coal delivery. Inspect coal stocks before rerunning maintenance.
+Construction used existing plates and ordinary inventory-backed crafting. All
+connections were inspected through EYG. After startup, all fourteen machine
+fuel inventories were positive and all four output chests gained plates over
+3,600 ticks, with no further bot fuel deliveries.
+
+See [the staged construction record and safe checks](scenarios/iron-pipeline/refuel/README.md).
+The construction stages are already complete; do not rerun them blindly. The
+older `service.eyg` routine predates this belt supply and is no longer needed for
+routine refuelling. Coal/iron deposits must remain available and output chests
+must have room.
+
+`scenarios/iron-pipeline/inspect.eyg` inspects the existing line;
+`scenarios/iron-pipeline/refuel/verify.eyg` checks fresh plate growth in every
+lane. Execution evidence is retained in the ignored `tmp/refuel/` directory.
