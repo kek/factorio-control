@@ -1,6 +1,6 @@
 # Factorio Control
 
-An Elixir host controls a character on a headless Factorio server through a small Lua mod. EYG programs can use the same constrained gameplay interface through an Elixir effect host and a shared, Pi-independent evaluator.
+An Elixir host controls a character on a headless Factorio server through a small Lua mod. EYG programs can use the same constrained gameplay interface through an Elixir effect host and an external portable evaluator.
 
 **Status:** working prototype on **Factorio 2.1.24**. RCON, inspection, walking, mining, placement, inventory transfers, and iron production have been exercised on the local server. The EYG coal-to-iron program has also passed on the live server, including a depleted coal tile and a full furnace output. Recipe-driven crafting is available; pathfinding remains future work.
 
@@ -23,26 +23,24 @@ cd factorio
 cd ..
 ```
 
-Set `FACTORIO_RCON_PASSWORD` locally (the existing `.envrc` supplies it), then start the server:
+Export `FACTORIO_RCON_PASSWORD` locally. If a trusted, unversioned `.envrc` supplies it, load it with exported assignments, then start the server:
 
 ```sh
-source .envrc
+set -a; source .envrc; set +a
 mix factorio.server
 ```
 
 `mix factorio.server` owns the game process through an Elixir `Port` and streams its output. It launches `scripts/server`, which links the mod from `mods/factorio-control` into the server's mod directory and execs the game with `my-save.zip` and `server-settings.json`. These settings keep ticks advancing with no connected players. If the mod was previously disabled, enable `factorio-control` in `factorio/mods/mod-list.json` before starting.
 
-For a graphical client, install the same mod directory under `~/.factorio/mods/factorio-control`, restart/synchronize mods, and connect to **localhost:34197**. Match the server's game version and enabled official mods. Mod code changes require restarting both server and client. The local test installation uses symlinks to this checkout.
-
-The standalone Linux client can use its unpacked directory instead of `~/.factorio`.
-For the installation at `~/Applications/factorio`, install the mod in
-`~/Applications/factorio/mods/factorio-control`. Check `Write data path` in the
-client's `factorio-current.log` to identify the correct location. The local mod
-is unpublished, so the multiplayer sync dialog cannot download it from the mod
-portal; install it locally first, enable it, and restart the client.
-When updating the mod, update both installations together. In this development
-setup the server and standalone client both link to `mods/factorio-control`, so
-edits reach both automatically; restart both processes to load the new Lua code.
+For a graphical client, install the same mod revision in the client's actual
+write-data mod directory (normally `~/.factorio/mods/factorio-control` on Linux)
+and connect to the server's multiplayer endpoint, normally `localhost:34197`.
+Standalone installations may use a different write-data path; on an explicitly
+requested client-setup task, check `Write data path` in its log. This unpublished
+mod must be installed locally because multiplayer sync cannot download it from
+the mod portal. Match the server's game version and enabled official mods, and
+restart the affected processes after Lua changes. Machine-specific installation
+paths and symlink conventions belong in personal deployment notes.
 Server capability work is validated against the headless server and typed EYG;
 these client joining instructions are not a requirement to inspect or verify the
 graphical client for each change.
@@ -105,18 +103,18 @@ Both production scenarios use the existing POC iron drill at `(29,-42)`, furnace
 
 ## EYG programs
 
-Build the shared evaluator from the sibling config checkout (Gleam and Node 24+):
+Provision a compatible built `portable-worker.mjs` separately and use Node 24+.
+Configure its location explicitly for commands and tests:
 
 ```sh
-(cd ../config/pi/agent/extensions/eyg-action && gleam build)
-export EYG_WORKER="$PWD/../config/pi/agent/extensions/eyg-action/portable-worker.mjs"
+export EYG_WORKER=/absolute/path/to/portable-worker.mjs
 mix test
 ```
 
-Tests default to that sibling worker location; set `EYG_WORKER` for a different
-layout. The evaluator is shared source, not copied into this repository or
-published as a package. It uses its existing pinned Gleam dependencies. There
-are still no Hex dependencies in the Elixir host.
+The evaluator is external shared source, not bundled here or published as a
+package. Follow its own build instructions and pinned dependencies when building
+it. Source checkout paths, cache locations and provisioning commands belong to
+your deployment configuration. There are no Hex dependencies in the Elixir host.
 
 With a running server, RCON credentials and an existing idle bot, run:
 
@@ -282,7 +280,7 @@ See [the current layout and safe checks](scenarios/expansion/README.md) and
 construction/recovery programs and exclusive traces are kept in ignored
 `tmp/expansion/`; do not replay them against the completed factory.
 
-Before shutting down the sandbox runtime, stop its server through the Elixir
-Port owner and confirm save completion/exit. A backend's short forced-cleanup
-grace is not a guaranteed save boundary. Recover an interrupted save only from
-a validated save/autosave, retaining the old files before replacement.
+Before stopping the server or its execution environment, stop through the Elixir
+Port owner and confirm save completion/exit. Forced process cleanup is not a
+guaranteed save boundary. Recover an interrupted save only from a validated
+save/autosave, retaining the old files before replacement.
