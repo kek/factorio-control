@@ -89,7 +89,10 @@ A lost command response returns `{:error, {:unknown_outcome, reason}}` and close
 
 ## Verification
 
+Install the pinned Node runtime first (Node 24+ and npm; no Gleam compiler needed):
+
 ```sh
+npm ci --ignore-scripts
 mix test
 # Opt-in: modifies the running test world with a small temporary fixture.
 mix test --include live
@@ -103,18 +106,30 @@ Both production scenarios use the existing POC iron drill at `(29,-42)`, furnace
 
 ## EYG programs
 
-Provision a compatible built `portable-worker.mjs` separately and use Node 24+.
-Configure its location explicitly for commands and tests:
+The evaluator is the public [`@kek/eyg-runtime`](https://github.com/kek/eyg-runtime)
+package, pinned to **v0.1.1** by its GitHub release URL in `package.json` and
+integrity hash in `package-lock.json`. Install it with Node 24+ and npm:
 
 ```sh
-export EYG_WORKER=/absolute/path/to/portable-worker.mjs
-mix test
+npm ci --ignore-scripts
+mix test --max-cases 1
 ```
 
-The evaluator is external shared source, not bundled here or published as a
-package. Follow its own build instructions and pinned dependencies when building
-it. Source checkout paths, cache locations and provisioning commands belong to
-your deployment configuration. There are no Hex dependencies in the Elixir host.
+The release contains compiled JavaScript; neither Gleam nor a private config
+checkout is required. There are no runtime npm dependencies inside the evaluator
+and no Hex dependencies in the Elixir host. Generated `node_modules/` stays
+unversioned; commit the package manifest and lockfile.
+
+Commands and tests default to this checkout's installed
+`node_modules/@kek/eyg-runtime/node/worker.mjs`. Normally leave `EYG_WORKER`
+unset. For a deliberate custom runtime, `--worker PATH` takes precedence over
+`EYG_WORKER`, which takes precedence over the installed package. Missing workers
+produce an installation hint before connecting to the game.
+
+The public package owns evaluation and the
+[Node v1 protocol](https://github.com/kek/eyg-runtime/blob/v0.1.1/PROTOCOL.md).
+Factorio retains effect grants/handlers, RCON, receipts, action recovery,
+wall-clock deadlines and Node process ownership.
 
 With a running server, RCON credentials and an existing idle bot, run:
 

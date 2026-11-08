@@ -1,7 +1,7 @@
 ---
 name: factorio
 description: Inspect and play Factorio through the factorio-control project's typed EYG effects. Use for moving the bot, mining, crafting, building, transferring items, diagnosing factories, and constructing or verifying production automation. Includes safe recovery after failed or uncertain actions.
-compatibility: A factorio-control checkout, matching running server/mod, Elixir/OTP, Node 24+, and the shared portable EYG worker.
+compatibility: A factorio-control checkout, matching running server/mod, Elixir/OTP, Node 24+, npm, and the locked @kek/eyg-runtime dependency.
 ---
 
 # Play Factorio
@@ -40,10 +40,16 @@ headless distribution, saves, build output and local credentials are unversioned
   set -a; source .envrc; set +a
   ```
 
-- EYG evaluation requires Node 24+ and an externally provisioned, compatible
-  `portable-worker.mjs`. Set `EYG_WORKER=/absolute/path/to/portable-worker.mjs`
-  or pass `--worker PATH`. The host does not install or build that evaluator.
-  Its source location and provisioning procedure belong to the deployment.
+- EYG evaluation requires Node 24+ and the public `@kek/eyg-runtime` package
+  pinned by this checkout's `package.json` and `package-lock.json`. Install with
+  `npm ci --ignore-scripts`; the release includes compiled JavaScript and needs
+  no Gleam compiler or private config checkout.
+- Commands and tests default to
+  `node_modules/@kek/eyg-runtime/node/worker.mjs`, resolved from this checkout.
+  Normally leave `EYG_WORKER` unset. For intentional custom-runtime testing,
+  `--worker PATH` overrides `EYG_WORKER`, which overrides the installed package.
+  Installing dependencies is an explicit setup step, never an automatic action
+  during evaluation.
 - Factorio multiplayer defaults to **UDP 34197** and RCON to **TCP 27015**.
   `mix factorio.eyg` defaults to RCON at `localhost:27015`; select another
   endpoint with `--host HOST --port PORT`. RCON is unencrypted: keep it on a

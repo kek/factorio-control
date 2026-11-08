@@ -77,12 +77,18 @@ The Elixir/mod production scenario subsequently walked to coal, mined 12 pieces,
 
 ## EYG effect boundary
 
-`FactorioControl.Eyg` embeds the shared evaluator through an NDJSON worker at
-`config/pi/agent/extensions/eyg-action/portable-worker.mjs`. The shared Gleam
-module parses, checks a host-owned structural effect context and retains the
-continuation while Elixir handles each request. The runtime has no Pi imports.
-Elixir owns credentials, RCON and game action lifecycles. This uses the current
-JavaScript target; a native BEAM evaluator has not been investigated.
+`FactorioControl.Eyg` uses the public `@kek/eyg-runtime` package, pinned to the
+v0.1.1 GitHub release artifact and lockfile integrity. `npm ci --ignore-scripts`
+installs its precompiled JavaScript without Gleam or a private config checkout.
+`FactorioControl.Eyg.Worker.path/1` resolves an explicit worker option, then
+`EYG_WORKER`, then this checkout's `node_modules/@kek/eyg-runtime/node/worker.mjs`.
+
+The package supplies the Gleam evaluation core and Node NDJSON v1 adapter. It
+parses, checks a host-owned structural effect context and retains the continuation
+while Elixir handles each request. Factorio's Elixir adapter retains credentials,
+RCON, grants, deadlines, process ownership, traces and game action recovery.
+This integration uses the supported Node transport; a native BEAM host adapter
+is outside this migration.
 
 Every effect returns EYG `Result(value, String)`. `Inspect({radius})` returns a
 fixed `{tick, inventory, entities, truncated}` record. Inventory/output stacks
@@ -150,7 +156,7 @@ Input positions use **integer half-tile units**, so `{x2:91,y2:35}` means
 `(45.5,17.5)`. Floats and null are not supported by the bridge. Position
 components are limited to ±2,000,000; counts to 1–1000; durations to 1–3600
 ticks; names to 100 UTF-8 bytes. The mod retains its stricter gameplay checks.
-There is no spawn/respawn effect or administrator Lua escape hatch.
+`SpawnBot` explicitly grants empty-character creation/recovery; no administrator Lua escape hatch is exposed.
 
 `WalkTo`, `Mine` and `Craft` submit once, then poll the accepted action ID through
 `Bot.await`. They resume the EYG continuation only after a terminal result.
