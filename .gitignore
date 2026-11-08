@@ -2,7 +2,7 @@
 .idea
 *.log
 tmp/
-factorio/
+/factorio/
 /_build/
 /deps/
 /erl_crash.dump
