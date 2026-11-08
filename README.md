@@ -4,6 +4,13 @@ An Elixir host controls a character on a headless Factorio server through a smal
 
 **Status:** working prototype on **Factorio 2.1.24**. RCON, inspection, walking, mining, placement, inventory transfers, and iron production have been exercised on the local server. The EYG coal-to-iron program has also passed on the live server, including a depleted coal tile and a full furnace output. Recipe-driven crafting is available; pathfinding remains future work.
 
+> **Achievements:** using this mod on a save disables achievements. The host
+> sends Lua console commands (`/sc`) over RCON, which permanently disables
+> achievements in that save. While the mod is enabled, the game also counts as
+> modded, so achievements are tracked separately from vanilla and are not
+> recorded on Steam. Use a separate save and client installation, not your
+> ordinary game.
+
 ## Run locally
 
 Requires Elixir 1.18+ with OTP 27+ and the Factorio 2.1.24 Linux headless distribution unpacked into `factorio/`. There are no Hex dependencies. The game, saves, build output, and local credentials are ignored by version control.
