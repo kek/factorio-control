@@ -34,7 +34,7 @@ defmodule Mix.Tasks.Factorio.Eyg do
 
     worker =
       opts[:worker] || System.get_env("EYG_WORKER") ||
-        Mix.raise("Set EYG_WORKER or --worker to the shared portable-worker.mjs")
+        Mix.raise("Set EYG_WORKER or --worker to kek/eyg-runtime node/worker.mjs")
 
     unless File.regular?(worker), do: Mix.raise("Worker does not exist: #{worker}")
     code = File.read!(file)
