@@ -1,0 +1,15 @@
+let bind=(r,next)->{match r {Ok(v)->{next(v)} Error(e)->{Error(e)}}}
+let loader=(name,x,y,px,py)->{
+ let r=bind(perform InspectEntity({name:name,position:{x2:x,y2:y}}),(e)->{
+  bind(perform InspectMachine({name:name,position:{x2:x,y2:y}}),(m)->{
+   bind(perform InspectTransport({name:"transport-belt",position:{x2:px,y2:py}}),(b)->{
+    let ammo=!list_fold(b.lanes,0,(l,n)->{!list_fold(l.items,n,(i,n)->{match !equal(i.name,"firearm-magazine") {True(_)->{!int_add(n,i.count)} | (_)->{n}}})})
+    Ok({x:x,y:y,pickup:e.entity.pickup_target,drop:e.entity.drop_target,energy:m.machine.energy_joules,status:m.machine.status,ammo_on_pickup:ammo,error:""})
+   })
+  })
+ })
+ match r {Ok(v)->{v} Error(e)->{{x:x,y:y,pickup:"",drop:"",energy:0,status:"error",ammo_on_pickup:0,error:e}}}
+}
+let loaders=[loader("long-handed-inserter",93,-73,89,-73),loader("long-handed-inserter",93,-13,89,-13),loader("long-handed-inserter",127,-73,131,-73),loader("long-handed-inserter",127,-49,131,-49),loader("long-handed-inserter",127,-13,131,-13),loader("long-handed-inserter",63,-69,63,-65),loader("inserter",35,-73,35,-71),loader("inserter",111,47,113,47),loader("inserter",81,89,81,91)]
+let connected=!list_fold(loaders,0,(l,n)->{match !equal({error:l.error,pickup:l.pickup,drop:l.drop},{error:"",pickup:"transport-belt",drop:"gun-turret"}) {True(_)->{match !int_compare(l.energy,0) {Gt(_)->{!int_add(n,1)} | (_)->{n}}} | (_)->{n}}})
+{success:!equal(connected,9),connected:connected,loaders:loaders}

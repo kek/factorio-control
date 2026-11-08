@@ -1,4 +1,4 @@
-# Starter bus, workshop and defenses — current save
+# Starter bus, workshop and defenses — base build
 
 This is a **constructed, save-specific factory**, not a fresh-save bootstrap.
 Construction, failed preflights, recovery and commissioning sources/receipts are
@@ -8,7 +8,9 @@ routes; use the guarded service opening.
 
 ## Installed workshop
 
-`layout.json` is the audited final layout, in integer half-tile coordinates:
+`layout.json` is the audited base layout, in integer half-tile coordinates. The
+[current resupply overlay](../resupply/README.md) adds continuous copper supply,
+ten automated ammunition feeds and their power connections:
 
 - Two bus lanes: iron at x=47.5 and copper at x=51.5.
 - Powered extraction from the iron chests at `(29.5,-37.5)` and `(37.5,-37.5)`.
@@ -21,11 +23,10 @@ routes; use the guarded service opening.
   buffers reached 100 gears, 100 magazines and 100 belts, were used for further
   construction/arming, and refilled from the iron bus.
 
-The copper lane is **buffer-fed** from its chest at `(51.5,-35.5)` and delivers
-to storage at `(54.5,-6.5)`. It is not a continuous outpost connection. Its 40
-plates came from actual copper smelting, not generated materials. Remote copper
-mining/smelting was bootstrapped but needs separate current-state inspection and
-logistics work before promising unattended copper supply.
+The base build initially fed the copper lane from a chest at `(51.5,-35.5)`,
+delivering to `(54.5,-6.5)`. Automatic resupply now enters at `(51.5,-27.5)`
+from a rebuilt, fueled and guarded outpost. The original upper buffer remains
+outside that automatic feed; see the resupply overlay for the current routes.
 
 ## Defenses and access
 
@@ -35,16 +36,17 @@ The **bus/workshop enclosure** runs from x=45.5 to 64.5 and y=-38.5 to -3.5:
   at `(45.5,-18.5)` and `(45.5,-17.5)`.
 - Four corner turrets plus the east-side turret cover this enclosure and opening.
 - Four additional turrets guard power, coal, iron and stone production: nine
-  armed turrets in total. The mining, lab and power areas are not all inside
+  armed turrets in the base build; resupply adds a tenth copper guard. The mining,
+  lab and power areas are not all inside
   this wall rectangle.
 - The iron feed crosses the west wall through normal underground belts. One
   small pole was moved to keep the wall line clear without breaking power.
 
 The opening is turret-covered, **not a researched gate or sealed wall**. Guns
 are loaded from real magazine stock. The workshop automatically produces more
-ammunition into storage, but perimeter reloads remain inventory transfers; no
-automatic perimeter ammunition belt/loader is claimed. Check ammo and health
-before leaving the factory unattended.
+ammunition into storage. The resupply overlay now distributes it by belts,
+balancers and powered loaders to all ten guards. Check ammunition, fuel, health
+and remaining deposits before leaving the factory unattended.
 
 ## Resource production and recovery
 

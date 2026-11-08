@@ -265,8 +265,10 @@ subsequent construction and turret loads, and refilled from the iron bus.
 A 106-wall enclosure surrounds the bus/workshop, with a turret-covered two-tile
 service opening. Nine armed turrets cover this enclosure and the iron, stone,
 coal and power areas. The resource/power outposts are not all inside the wall
-rectangle; copper supply is currently buffer-fed and turret reloads remain
-inventory transfers, not a claimed automatic perimeter loader.
+rectangle. The subsequent [automatic resupply build](scenarios/resupply/README.md)
+connects copper mining/smelting to the bus and supplies all ten current guards
+with physical ammunition belts and powered loaders. Copper enters mid-bus at
+`(51.5,-27.5)`; the original upper buffer is not automatically refilled.
 
 See [the current layout and safe checks](scenarios/expansion/README.md) and
 [the bounded expansion effect contracts](docs/expansion-effects.md). Historical
