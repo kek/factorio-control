@@ -55,9 +55,9 @@ Success responses are `{ok = true, tick = game.tick, data = ...}`. Errors are `{
 | `build` | `item`, `position`, optional cardinal `direction` | Inventory-backed placement of a starter drill, furnace, wooden chest, transport belt, or burner inserter. Returns the actual entity summary. |
 | `transfer` | `entity` name, `position`, `inventory`, `direction` (`take`/`give`), `item`, `count` (1–1000) | Transfers exactly the requested quantity of normal-quality ordinary items to/from a reachable friendly entity. No transfer on insufficient items or capacity. |
 
-Transfer inventory selectors are `fuel`, `output`, furnace `input`, and chest/character `main`. Stack types with metadata, such as blueprints, are excluded. Higher-quality stacks, fast replacement, ghosts, blueprints, arbitrary prototypes, and entity removal are outside the current gameplay API.
+Transfer inventory selectors are `fuel`, `output`, furnace/assembler/lab `input`, turret `ammo`, and chest/character `main`. Unowned NPC corpses also support read-only inventory inspection and `main` recovery; corpses associated with an existing player are excluded. Ordinary normal-quality items and full base firearm magazines/red science packs are supported. Partially consumed magazines/tools cannot be refreshed by a count-only transfer; taking used consumables from turrets or labs is rejected. Blueprints and other arbitrary metadata stacks, higher quality, ghosts, fast replacement and arbitrary prototypes remain unsupported. `MineObject` performs normal mining of neutral trees/rocks or friendly allowlisted infrastructure.
 
-Building checks the supported item and its `place_result`, inventory, distance, grid alignment, character placement rules and surface collision rules before creation. Odd tile widths require half-integer coordinates; even widths require integers. Supported entities have square footprints. The item is consumed only after entity creation succeeds; failed removal destroys the newly created entity. The implementation uses validated `create_entity`, rather than promising equivalence with every player event/undo behavior. Other gameplay mods have not been tested.
+Building checks the supported item and its `place_result`, inventory, distance, grid alignment, character placement rules and surface collision rules before creation. Odd tile dimensions require half-integer coordinates; even dimensions require integers. Width and height are checked independently and swapped for east/west orientation, supporting rectangular splitters, boilers and generators. The item is consumed only after entity creation succeeds; failed removal destroys the newly created entity. The implementation uses validated `create_entity`, rather than promising equivalence with every player event/undo behavior. Other gameplay mods have not been tested.
 
 ## Action lifecycle and persistence
 
@@ -223,9 +223,10 @@ recursive ingredient crafting.
 through the same action lifecycle as walking/mining. The count is 1–100 recipe
 batches; terminal receipts count actual output items. The mod restricts recipes
 to enabled `crafting` categories, integer item inputs, and a single guaranteed
-ordinary item result. It checks all ingredients and output capacity before
-starting. No fluids, metadata stacks, probabilistic outputs or item grants are
-supported.
+supported item result. Ordinary items plus full base firearm magazines and
+red science packs are allowed. It checks all ingredients and output capacity
+before starting. No fluids, arbitrary metadata stacks, probabilistic outputs or
+item grants are supported.
 
 The initial native approach encountered a player-only API on the standalone
 character. The current effect implements recipe-driven crafting in the mod:
@@ -236,8 +237,15 @@ so cancellation or timeout needs no refund. Player crafting-speed bonuses and
 native recursive crafting are not applied. Completed counts and remaining
 materials persist through save/load in the existing mod storage.
 
+The separate `HandCraft` effect now uses the engine queue on the standalone
+character, retaining owned cancellation and reporting only genuinely completed
+output to force production statistics when the engine has not reported it. This
+allows normal craft-triggered progression without granting technology. See
+[the expanded effect boundary](docs/expansion-effects.md) for that behavior and
+the infrastructure, research, inventory and actor-recovery controls.
+
 Game tasks must use only EYG effects, including planning observations. See
-`AGENTS.md` for that workflow and synchronized mod deployment rules. The staged
+`AGENTS.md` for that workflow and headless-server deployment rules. The staged
 programs under `scenarios/iron-pipeline/` construct and verify the physical starter
 pipeline without administrator Lua or generated materials.
 

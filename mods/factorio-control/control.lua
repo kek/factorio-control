@@ -9,8 +9,19 @@ local directions = {
 local buildable = {
   ["burner-mining-drill"] = true, ["stone-furnace"] = true,
   ["wooden-chest"] = true, ["iron-chest"] = true,
-  ["transport-belt"] = true, ["burner-inserter"] = true
+  ["transport-belt"] = true, ["burner-inserter"] = true,
+  ["splitter"] = true, ["underground-belt"] = true, ["assembling-machine-1"] = true,
+  ["inserter"] = true, ["long-handed-inserter"] = true,
+  ["small-electric-pole"] = true, ["electric-mining-drill"] = true,
+  ["boiler"] = true, ["steam-engine"] = true, ["offshore-pump"] = true,
+  ["pipe"] = true, ["pipe-to-ground"] = true, ["lab"] = true,
+  ["gun-turret"] = true, ["stone-wall"] = true
 }
+local consumables = {["firearm-magazine"] = "ammo", ["automation-science-pack"] = "tool"}
+local function supported_product(name)
+  local p = prototypes.item[name]
+  return p and (p.type == "item" or consumables[name] == p.type)
+end
 local status_names = {}
 for name, value in pairs(defines.entity_status) do status_names[value] = name end
 
@@ -53,6 +64,14 @@ end
 local function contents(inventory)
   return inventory and inventory.get_contents() or {}
 end
+local function undamaged(inventory, item)
+  for i = 1, #inventory do
+    local s = inventory[i]
+    if s.valid_for_read and s.name == item and s.quality.name == "normal" then
+      check(s.health == nil or s.health == 1, "unsupported_stack", "Damaged item stacks require metadata-preserving handling")
+    end
+  end
+end
 local function halt()
   local c = state().character
   if c and c.valid then
@@ -66,11 +85,43 @@ local function public_action(a)
     finished_tick = a.finished_tick, deadline_tick = a.deadline_tick, error = a.error,
     position = a.position, count = a.count}
 end
+local function report_hand_craft(c, a)
+  -- Standalone character queues do not report force production like player
+  -- queues. Backfill only missing statistics for output actually observed in
+  -- inventory; never set a technology or create another item.
+  local stats = c.force.get_item_production_statistics(c.surface)
+  local observed = math.min(a.count, a.requested)
+  local item = {name = a.item, quality = "normal"}
+  local missing = observed - math.max(0, stats.get_input_count(item) - a.production_before)
+  if missing > 0 then stats.on_flow(item, missing) end
+  local completed = math.floor(observed / a.per_craft)
+  for _, ingredient in ipairs(a.ingredients) do
+    local key = {name = ingredient.name, quality = "normal"}
+    local consumed = completed * ingredient.amount
+    local recorded = math.max(0, stats.get_output_count(key) - a.consumption_before[ingredient.name])
+    if consumed > recorded then stats.on_flow(key, -(consumed - recorded)) end
+  end
+end
+
 local function finish(status, code, message)
   local b = state()
   local a = b.active
   if not a then return end
   halt()
+  if a.kind == "hand-craft" and status ~= "completed" and b.character and b.character.valid then
+    local c = b.character
+    a.count = math.max(0, c.get_item_count{name = a.item, quality = "normal"} - a.initial)
+    local remaining = math.max(0, a.batches - math.floor(a.count / a.per_craft))
+    local queue = c.crafting_queue or {}
+    -- The queue was empty on submission. Cancel only the remaining owned
+    -- batches at its head, never later work another controller may have added.
+    if remaining > 0 and queue[1] and queue[1].recipe == a.recipe then
+      c.cancel_crafting{index = 1, count = math.min(remaining, queue[1].count)}
+    end
+  end
+  if a.kind == "hand-craft" and b.character and b.character.valid then
+    report_hand_craft(b.character, a)
+  end
   a.status, a.finished_tick = status, game.tick
   if code then a.error = {code = code, message = message} end
   b.active = nil
@@ -88,6 +139,20 @@ local function start(kind, args)
   b.actions[a.id - 64] = nil
   return a
 end
+local function find_target(c, name, pos)
+  local e = c.surface.find_entity(name, pos)
+  if not e and name == "character-corpse" then
+    -- Corpses are not tile-aligned; the typed half-tile point can be up to
+    -- sqrt(.25^2+.25^2) away from their exact position.
+    local near = c.surface.find_entities_filtered{name = name, position = pos, radius = 0.4, limit = 2}
+    check(#near < 2, "ambiguous_target", "More than one corpse is near the requested point")
+    e = near[1]
+  end
+  return e
+end
+local function npc_corpse(e)
+  return e.type == "character-corpse" and not game.get_player(e.character_corpse_player_index)
+end
 local function entity_summary(e)
   local out = {name = e.name, type = e.type, position = e.position, unit_number = e.unit_number}
   if e.type == "resource" then out.amount = e.amount end
@@ -103,6 +168,7 @@ local function entity_summary(e)
     if e.type == "character" then out.inventory = contents(e.get_main_inventory()) end
     if e.type == "container" then out.inventory = contents(e.get_inventory(defines.inventory.chest)) end
   end
+  if npc_corpse(e) then out.inventory = contents(e.get_inventory(defines.inventory.character_corpse)) end
   if e.force.name == character().force.name and e.type ~= "character" then
     out.status = e.status
     out.status_name = status_names[e.status] or "unknown"
@@ -155,7 +221,7 @@ function methods.inspect_entity(args)
     "invalid_argument", "A valid entity name is required")
   local pos = position(args.position)
   -- A single lookup on the bot's surface; read-only and independent of reach.
-  local e = c.surface.find_entity(args.name, pos)
+  local e = find_target(c, args.name, pos)
   check(e and e.valid, "not_found", "No matching entity at position")
   return entity_summary(e)
 end
@@ -184,7 +250,7 @@ function methods.inspect_recipe(args)
     ingredients = r.ingredients, products = r.products, craftable = craftable_count(c, r)}
 end
 
-function methods.craft(args)
+local function craft_request(args)
   idle()
   local c = character()
   check(type(args.recipe) == "string", "invalid_argument", "Recipe name is required")
@@ -195,17 +261,59 @@ function methods.craft(args)
   check(#products == 1 and products[1].type == "item" and products[1].amount
     and products[1].amount == math.floor(products[1].amount)
     and (not products[1].probability or products[1].probability == 1)
-    and prototypes.item[products[1].name].type == "item",
-    "unsupported_recipe", "Crafting requires a single guaranteed ordinary item product")
+    and supported_product(products[1].name),
+    "unsupported_recipe", "Crafting requires a single guaranteed supported item product")
   check(craftable_count(c, r) >= n, "not_craftable", "Missing ingredients; craft intermediate items explicitly first")
   local product = products[1]
   check(c.get_main_inventory().get_insertable_count{name = product.name, quality = "normal"} >= n * product.amount,
     "inventory_full", "Not enough room for crafted items")
+  return c, r, n, product
+end
+
+function methods.craft(args)
+  local c, r, n, product = craft_request(args)
   local a = start("craft", args)
   a.item, a.per_craft, a.requested = product.name, product.amount, n
   a.ingredients, a.completed, a.count = r.ingredients, 0, 0
   a.duration = math.max(1, math.ceil(r.energy * 60))
   a.next_tick = game.tick + a.duration
+  return public_action(a)
+end
+
+-- Use the real engine crafting queue when normal crafting events/research
+-- triggers matter. Never recursively craft missing intermediates.
+function methods.hand_craft(args)
+  local c, r, n, product = craft_request(args)
+  integer(args.timeout_ticks or 1800, "timeout_ticks", 1, 3600)
+  check(#(c.crafting_queue or {}) == 0, "busy", "Character crafting queue is not empty")
+  local initial = c.get_item_count{name = product.name, quality = "normal"}
+  local stats = c.force.get_item_production_statistics(c.surface)
+  local production_before = stats.get_input_count{name = product.name, quality = "normal"}
+  local consumption_before = {}
+  for _, ingredient in ipairs(r.ingredients) do
+    consumption_before[ingredient.name] = stats.get_output_count{name = ingredient.name, quality = "normal"}
+  end
+  local accepted = c.begin_crafting{recipe = r.name, count = n, silent = true}
+  check(accepted > 0, "craft_rejected", "Engine did not accept any crafting batches")
+  local a = start("hand-craft", args)
+  a.item, a.initial, a.requested, a.count = product.name, initial, n * product.amount, 0
+  a.recipe, a.batches, a.per_craft = r.name, accepted, product.amount
+  a.production_before, a.consumption_before, a.ingredients = production_before, consumption_before, r.ingredients
+  return public_action(a)
+end
+
+function methods.mine_object(args)
+  idle()
+  local c, p = character(), position(args.position)
+  check(type(args.name) == "string", "invalid_argument", "Entity name is required")
+  check(distance(c.position, p) <= c.resource_reach_distance, "out_of_reach", "Mining target is out of reach")
+  local e = c.surface.find_entity(args.name, p)
+  check(e and e.valid and e.minable and (
+      (e.force.name == "neutral" and (e.type == "tree" or e.type == "simple-entity")) or
+      (e.force == c.force and buildable[e.name])),
+    "invalid_target", "Only minable neutral trees/rocks or friendly allowlisted infrastructure may be mined")
+  local a = start("mine-object", args)
+  a.position, a.target, a.count = p, e, 0
   return public_action(a)
 end
 
@@ -253,7 +361,7 @@ function methods.build(args)
   idle()
   local c = character()
   local item = args.item
-  check(type(item) == "string" and buildable[item], "unsupported_item", "Supported: starter drill, furnace, wooden/iron chest, belt, burner inserter")
+  check(type(item) == "string" and buildable[item], "unsupported_item", "Item is outside the bounded starter infrastructure allowlist")
   local proto = prototypes.item[item]
   check(proto and proto.place_result, "unsupported_item", "Item has no placeable entity")
   local pos = position(args.position)
@@ -262,18 +370,26 @@ function methods.build(args)
     "invalid_argument", "Build direction must be north, east, south, or west")
   local dir = directions[direction]
   check(distance(pos, c.position) <= c.build_distance, "out_of_reach", "Build position is out of reach")
+  if args.end_type ~= nil then
+    check(item == "underground-belt" and (args.end_type == "input" or args.end_type == "output"),
+      "invalid_argument", "Underground end must be input or output")
+  end
   local stack = {name = item, quality = "normal", count = 1}
   check(c.get_item_count(stack) >= 1, "no_item", "Required item is missing")
-  -- All supported buildings have square footprints. Odd tile widths use half
-  -- coordinates; even widths use integers. Do not let create_entity silently
-  -- snap to a different tile after placement/reach checks.
-  local offset = (proto.place_result.tile_width % 2) / 2
-  check(pos.x == math.floor(pos.x) + offset and pos.y == math.floor(pos.y) + offset,
+  undamaged(c.get_main_inventory(), item)
+  -- Direction-sensitive rectangular footprints (splitters, boilers, generators)
+  -- must be checked on both axes before create_entity can snap the position.
+  local width, height = proto.place_result.tile_width, proto.place_result.tile_height
+  height = height or width
+  if direction == "east" or direction == "west" then width, height = height, width end
+  local ox, oy = (width % 2) / 2, (height % 2) / 2
+  check(pos.x == math.floor(pos.x) + ox and pos.y == math.floor(pos.y) + oy,
     "invalid_argument", "Build position is not aligned to the entity tile grid")
   local spec = {name = proto.place_result.name, position = pos, force = c.force,
     direction = dir, quality = "normal", build_check_type = defines.build_check_type.manual}
   check(c.can_place_entity{name = spec.name, position = pos, direction = dir}
     and c.surface.can_place_entity(spec), "blocked", "Placement is blocked")
+  if item == "underground-belt" then spec.type = args.end_type or "input" end
   -- Creating before consumption avoids losing the item on failed placement.
   -- No other action interleaves within this call. Roll back if removal fails.
   local e = c.surface.create_entity(spec)
@@ -283,6 +399,12 @@ function methods.build(args)
     fail("no_item", "Could not consume building item")
   end
   return entity_summary(e)
+end
+
+function methods.build_underground(args)
+  check(args.end_type == "input" or args.end_type == "output", "invalid_argument", "Underground end must be input or output")
+  return methods.build{item = "underground-belt", position = args.position,
+    direction = args.direction, end_type = args.end_type}
 end
 
 function methods.rotate(args)
@@ -305,7 +427,10 @@ end
 local function inventory(e, name)
   if name == "fuel" then return e.get_fuel_inventory() end
   if name == "output" then return e.get_output_inventory() end
-  if name == "input" and e.type == "furnace" then return e.get_inventory(defines.inventory.crafter_input) end
+  if name == "input" and (e.type == "furnace" or e.type == "assembling-machine") then return e.get_inventory(defines.inventory.crafter_input) end
+  if name == "input" and e.type == "lab" then return e.get_inventory(defines.inventory.lab_input) end
+  if name == "ammo" and e.type == "ammo-turret" then return e.get_inventory(defines.inventory.turret_ammo) end
+  if name == "main" and npc_corpse(e) then return e.get_inventory(defines.inventory.character_corpse) end
   if name == "main" and (e.type == "container" or e.type == "character") then
     return e.type == "character" and e.get_main_inventory() or e.get_inventory(defines.inventory.chest)
   end
@@ -318,15 +443,36 @@ function methods.transfer(args)
   local pos = position(args.position)
   check(args.direction == "take" or args.direction == "give", "invalid_argument", "direction must be take or give")
   check(type(args.entity) == "string", "invalid_argument", "entity name is required")
-  local e = c.surface.find_entity(args.entity, pos)
-  check(e and e ~= c and e.force == c.force, "invalid_target", "Expected a friendly entity")
+  local e = find_target(c, args.entity, pos)
+  check(e and e ~= c and (e.force == c.force or (npc_corpse(e) and args.direction == "take")),
+    "invalid_target", "Expected a friendly entity or an unowned NPC corpse for recovery")
   check(c.can_reach_entity(e), "out_of_reach", "Inventory is out of reach")
   local other = inventory(e, args.inventory or "main")
   check(other, "invalid_inventory", "Inventory is unavailable")
   local source, dest = c.get_main_inventory(), other
   if args.direction == "take" then source, dest = other, source end
   local item = args.item
-  check(type(item) == "string" and prototypes.item[item] and prototypes.item[item].type == "item", "invalid_argument", "Only ordinary items without stack metadata are supported")
+  check(type(item) == "string" and supported_product(item), "invalid_argument", "Only supported normal-quality items may be transferred")
+  if consumables[item] then
+    check(not (args.direction == "take" and (e.type == "lab" or e.type == "ammo-turret")),
+      "partial_item", "Taking used ammunition or science packs is not supported")
+    -- Count-only transfers must not refresh partially consumed stack metadata.
+    for i = 1, #source do
+      local s = source[i]
+      if s.valid_for_read and s.name == item and s.quality.name == "normal" then
+        -- In 2.1 a pristine full consumable can use simple item storage; the
+        -- metadata accessors throw unless the corresponding runtime flag is set.
+        local full
+        if consumables[item] == "ammo" then
+          full = not s.is_ammo or s.ammo == prototypes.item[item].magazine_size
+        else
+          full = not s.is_tool or s.durability == prototypes.item[item].get_durability("normal")
+        end
+        check(full, "partial_item", "Source contains a partially consumed item")
+      end
+    end
+  end
+  undamaged(source, item)
   local count = integer(args.count, "count", 1, 1000)
   local stack = {name = item, quality = "normal", count = count}
   check(source.get_item_count(stack) >= count, "no_item", "Not enough items in source")
@@ -372,6 +518,16 @@ local function tick()
     a.count = a.completed * a.per_craft
     if a.completed == a.requested then finish("completed")
     else a.next_tick = game.tick + a.duration end
+  elseif a.kind == "hand-craft" then
+    a.count = math.max(0, c.get_item_count{name = a.item, quality = "normal"} - a.initial)
+    if a.count >= a.requested then finish("completed")
+    elseif #(c.crafting_queue or {}) == 0 then finish("failed", "craft_incomplete", "Engine crafting ended before requested output was observed") end
+  elseif a.kind == "mine-object" then
+    if not a.target.valid then a.count = 1; finish("completed") return end
+    if distance(c.position, a.position) > c.resource_reach_distance then finish("failed", "out_of_reach", "Mining target moved out of reach") return end
+    c.update_selected_entity(a.position)
+    if c.selected ~= a.target then finish("failed", "target_lost", "Could not select mining target") return end
+    c.mining_state = {mining = true, position = a.position}
   elseif a.kind == "mine" then
     a.count = math.max(0, c.get_item_count{name = a.item, quality = "normal"} - a.initial)
     if a.count >= a.requested then finish("completed") return end
@@ -385,6 +541,26 @@ local function tick()
     c.mining_state = {mining = true, position = a.position}
   end
 end
+
+function methods.connect_power(args)
+  idle()
+  local c, from, to = character(), position(args.from), position(args.to)
+  local a, b = c.surface.find_entity("small-electric-pole", from), c.surface.find_entity("small-electric-pole", to)
+  check(a and b and a.valid and b.valid and a.force == c.force and b.force == c.force,
+    "invalid_target", "Expected two friendly small electric poles")
+  check(c.can_reach_entity(a) and c.can_reach_entity(b), "out_of_reach", "Both poles must be reachable")
+  local aa = a.get_wire_connector(defines.wire_connector_id.pole_copper, true)
+  local bb = b.get_wire_connector(defines.wire_connector_id.pole_copper, true)
+  check(aa and bb, "invalid_target", "Pole copper connector unavailable")
+  check(aa.is_connected_to(bb) or aa.connect_to(bb, true, defines.wire_origin.player),
+    "out_of_reach", "Poles cannot be joined within normal wire reach")
+  return {connected = true}
+end
+
+require("expansion").register(methods, {
+  character = character, idle = idle, check = check, integer = integer,
+  position = position, distance = distance, contents = contents, status_names = status_names
+})
 
 script.on_init(function() state() end)
 script.on_event(defines.events.on_tick, function()

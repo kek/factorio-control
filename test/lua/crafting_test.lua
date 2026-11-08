@@ -1,4 +1,5 @@
 -- Pure Lua lifecycle checks: no Factorio process, RCON, or game world required.
+package.path = 'mods/factorio-control/?.lua;' .. package.path
 defines = {direction = {}, entity_status = {}, events = {on_tick = 1}}
 for i, name in ipairs({'north','northeast','east','southeast','south','southwest','west','northwest'}) do defines.direction[name] = i end
 local tick, request

@@ -157,6 +157,7 @@ defmodule FactorioControl.Eyg do
       "Wait" => contract(record(ticks: int), receipt),
       "Stop" => contract(record([]), receipt)
     }
+    |> Map.merge(FactorioControl.Eyg.Expansion.contracts())
   end
 
   def run(client, code, opts \\ []) do
@@ -173,7 +174,7 @@ defmodule FactorioControl.Eyg do
     call = fn method, args ->
       # Record the attempt before calling the game: a handler can time out while
       # the request is in flight, before an acceptance receipt is available.
-      if method in [:walk_to, :mine, :craft],
+      if method in [:walk_to, :mine, :mine_object, :craft, :hand_craft],
         do: emit.(%{type: "action_submission", method: to_string(method)})
 
       result = raw_call.(method, args)
@@ -243,7 +244,8 @@ defmodule FactorioControl.Eyg do
         :unconfirmed
 
       %{type: "game_receipt", method: method, result: %{response: %{"ok" => false}}}, pending
-      when method in ["walk_to", "mine", "craft"] and not is_nil(pending) ->
+      when method in ["walk_to", "mine", "mine_object", "craft", "hand_craft"] and
+             not is_nil(pending) ->
         nil
 
       %{
@@ -252,7 +254,8 @@ defmodule FactorioControl.Eyg do
         result: %{response: %{"ok" => true, "data" => %{"id" => id}}}
       },
       pending
-      when method in ["walk_to", "mine", "craft"] and not is_nil(pending) ->
+      when method in ["walk_to", "mine", "mine_object", "craft", "hand_craft"] and
+             not is_nil(pending) ->
         {:accepted, id}
 
       %{
@@ -543,7 +546,8 @@ defmodule FactorioControl.Eyg do
          :ok <- item(item),
          :ok <- item(entity),
          true <-
-           inventory in ["fuel", "output", "input", "main"] and direction in ["take", "give"],
+           inventory in ["fuel", "output", "input", "main", "ammo"] and
+             direction in ["take", "give"],
          {:ok, response} <-
            invoke(call, :transfer, %{
              "position" => position,
@@ -570,7 +574,12 @@ defmodule FactorioControl.Eyg do
     end
   end
 
-  def handle(_, _, _, _), do: {:error, "invalid effect arguments"}
+  def handle(effect, args, call, await) do
+    case FactorioControl.Eyg.Expansion.handle(effect, args, call, await) do
+      :unsupported -> {:error, "invalid effect arguments"}
+      other -> other
+    end
+  end
 
   defp wait_until(call, tick, deadline) do
     with {:ok, response} <- invoke(call, :inspect, %{"radius" => 0}) do
