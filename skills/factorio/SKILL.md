@@ -111,6 +111,42 @@ before using any construction program; completed construction is not a safe retr
   the Elixir Port owner after Lua changes; mention a client restart only when
   relevant, without treating it as a verification step or deployment gate.
 
+## Game knowledge and strategy
+
+Read [references/gameplay.md](references/gameplay.md) for mechanics, entity
+stats, recipes, ratios, power, research order, defence, Space Age and diagnosis.
+Its figures come from the installed game data and the official wiki, and assume
+Space Age as enabled on the project server. Confirm them in the actual save
+through `InspectRecipe`, `InspectEntity` and `InspectResources`.
+
+In Factorio 2.x most early recipes start locked. Only furnaces, burner drills,
+burner inserters, gears, belts, wooden/iron chests and firearm magazines are
+available at the start; steam power, electronics, labs, gun turrets, walls and
+electric drills need trigger technologies or red research first.
+
+A sound bootstrap order for a fresh bot:
+
+1. **Scout**: inspect the bot, nearby resources (iron, copper, coal, stone,
+   water, trees) and any enemy bases and worms. Choose a base site with ore and
+   coal close together, water reachable for steam, and distance from nests.
+2. **Hand stage**: mine stone, coal and iron; craft stone furnaces and burner
+   drills. Wood from trees is needed for small electric poles.
+3. **Burner stage**: a self-fuelling coal drill pair, burner drills feeding
+   furnaces directly for iron and copper, and a coal supply plan for every burner.
+   Smelting 50 iron and 10 copper plates completes the steam power and
+   electronics triggers.
+4. **Power and first lab**: offshore pump → boiler → two steam engines with
+   belt-fed coal, poles to the work area, a lab (crafting it unlocks red science).
+5. **Defence**: research gun turret and stone wall first, then place turrets with
+   ammo between the base and observed enemy bases before pollution grows.
+6. **Research**: electric mining drill, automation, logistics, then automate
+   gears and red packs, then green.
+7. **Scale**: electric drills on belts, smelting columns, a main bus, then steel,
+   oil and further science tiers.
+
+Keep every stage verifiable: inspect production, fuel and ammunition before
+moving on, and size each step by the calculation formulas in the reference.
+
 ## Observe → plan → act in bounded stages
 
 - Inspect threats and the research/power bootstrap before expanding pollution.
