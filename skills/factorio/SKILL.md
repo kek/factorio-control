@@ -40,10 +40,12 @@ headless distribution, saves, build output and local credentials are unversioned
   set -a; source .envrc; set +a
   ```
 
-- EYG evaluation requires Node 24+ and an externally provisioned, compatible
-  `portable-worker.mjs`. Set `EYG_WORKER=/absolute/path/to/portable-worker.mjs`
-  or pass `--worker PATH`. The host does not install or build that evaluator.
-  Its source location and provisioning procedure belong to the deployment.
+- EYG evaluation requires Node 24+ and the externally provisioned
+  [kek/eyg-runtime](https://github.com/kek/eyg-runtime) Node package.
+  Set `EYG_WORKER=/absolute/path/to/node_modules/@kek/eyg-runtime/node/worker.mjs`
+  or pass `--worker PATH`. Pin the release artifact and verify its checksum or
+  lockfile integrity. The host does not install or build the evaluator.
+  Its source location and cache provisioning belong to the deployment.
 - Factorio multiplayer defaults to **UDP 34197** and RCON to **TCP 27015**.
   `mix factorio.eyg` defaults to RCON at `localhost:27015`; select another
   endpoint with `--host HOST --port PORT`. RCON is unencrypted: keep it on a

@@ -103,18 +103,26 @@ Both production scenarios use the existing POC iron drill at `(29,-42)`, furnace
 
 ## EYG programs
 
-Provision a compatible built `portable-worker.mjs` separately and use Node 24+.
-Configure its location explicitly for commands and tests:
+Use Node 24+ and the separately distributed
+[kek/eyg-runtime](https://github.com/kek/eyg-runtime) worker. Its v0.1.0 release
+contains generated JavaScript, Gleam source and checksums; it needs no compiler
+or install hooks at runtime. Follow that repository's install/verification
+instructions and pin the artifact URL plus checksum or lockfile integrity.
+
+Configure the installed worker explicitly for commands and tests:
 
 ```sh
-export EYG_WORKER=/absolute/path/to/portable-worker.mjs
-mix test
+export EYG_WORKER=/absolute/path/to/node_modules/@kek/eyg-runtime/node/worker.mjs
+mix format --check-formatted
+mix test --max-cases 1
 ```
 
-The evaluator is external shared source, not bundled here or published as a
-package. Follow its own build instructions and pinned dependencies when building
-it. Source checkout paths, cache locations and provisioning commands belong to
-your deployment configuration. There are no Hex dependencies in the Elixir host.
+Tests require `EYG_WORKER`; there is no sibling-config checkout fallback.
+Serial execution preserves the short process/handler-timeout assertions without
+concurrent worker-startup contention. The CLI also accepts `--worker PATH`.
+The evaluator remains external and is not installed or built by this host.
+Source checkout paths and cache provisioning belong to deployment configuration.
+There are no Hex dependencies in the Elixir host.
 
 With a running server, RCON credentials and an existing idle bot, run:
 

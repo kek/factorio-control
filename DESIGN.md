@@ -77,12 +77,17 @@ The Elixir/mod production scenario subsequently walked to coal, mined 12 pieces,
 
 ## EYG effect boundary
 
-`FactorioControl.Eyg` embeds the shared evaluator through an NDJSON worker at
-`config/pi/agent/extensions/eyg-action/portable-worker.mjs`. The shared Gleam
-module parses, checks a host-owned structural effect context and retains the
-continuation while Elixir handles each request. The runtime has no Pi imports.
-Elixir owns credentials, RCON and game action lifecycles. This uses the current
-JavaScript target; a native BEAM evaluator has not been investigated.
+`FactorioControl.Eyg` embeds the independently distributed
+[kek/eyg-runtime](https://github.com/kek/eyg-runtime) evaluator through its
+NDJSON-v1 Node worker, selected by `EYG_WORKER` or `--worker PATH`.
+The shared Gleam module parses, checks a host-owned structural effect context
+and retains the continuation while Elixir handles each request. The runtime has
+no Pi imports. Elixir owns credentials, RCON and game action lifecycles.
+The core has JavaScript/Erlang build and smoke checks, but this host still uses
+the Node transport; a production native BEAM adapter is deferred. Upstream
+target-native integer semantics differ outside JavaScript's safe range; see
+the shared runtime's README. No protocol or gameplay-contract changes accompany
+the extraction.
 
 Every effect returns EYG `Result(value, String)`. `Inspect({radius})` returns a
 fixed `{tick, inventory, entities, truncated}` record. Inventory/output stacks
