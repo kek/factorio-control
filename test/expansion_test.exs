@@ -114,6 +114,84 @@ defmodule FactorioControl.ExpansionTest do
              end)
   end
 
+  test "transport inspection has a typed read-only per-line contract" do
+    for {name, count} <- [{"transport-belt", 2}, {"underground-belt", 4}, {"splitter", 8}] do
+      call = fn :inspect_transport,
+                %{"name" => ^name, "position" => %{"x" => 1.5, "y" => -2.0}} ->
+        ok(%{
+          "name" => name,
+          "position" => %{"x" => 1.5, "y" => -2.0},
+          "direction" => 12,
+          "lanes" =>
+            for i <- 1..count do
+              %{
+                "index" => i,
+                "items" =>
+                  if(i == 1,
+                    do: %{},
+                    else: [%{"name" => "iron-plate", "quality" => "normal", "count" => i}]
+                  )
+              }
+            end
+        })
+      end
+
+      source =
+        "match perform InspectTransport({name: \"#{name}\", position:{x2:3,y2:-4}}) { Ok(t) -> {t} Error(_) -> {{tick:0,name:\"\",x_milli:0,y_milli:0,direction:0,lanes:[]}} }"
+
+      assert {:ok, %{"ok" => true, "value" => t}, trace} = run(source, ["InspectTransport"], call)
+      assert t["name"] == name
+      assert t["tick"] == 100 and t["direction"] == 12
+      assert t["x_milli"] == 1500 and t["y_milli"] == -2000
+      assert length(t["lanes"]) == count
+      assert hd(t["lanes"]) == %{"index" => 1, "items" => []}
+
+      assert List.last(t["lanes"])["items"] == [
+               %{"name" => "iron-plate", "quality" => "normal", "count" => count}
+             ]
+
+      refute Enum.any?(trace, &match?(%{type: "action_submission"}, &1))
+    end
+  end
+
+  test "transport rejects invalid inputs before the backend and preserves backend errors" do
+    for args <- [
+          %{"name" => "fast-transport-belt", "position" => %{"x2" => 0, "y2" => 0}},
+          %{"name" => "", "position" => %{"x2" => 0, "y2" => 0}},
+          %{"name" => "splitter", "position" => %{"x2" => 0.5, "y2" => 0}},
+          %{"name" => "splitter", "position" => %{"x2" => 2_000_001, "y2" => 0}}
+        ] do
+      assert {:error, _} =
+               Eyg.handle("InspectTransport", args, fn _, _ -> flunk("invalid input") end, nil)
+    end
+
+    args = %{"name" => "splitter", "position" => %{"x2" => 0, "y2" => 0}}
+
+    for code <- ["out_of_range", "not_found", "unsupported_transport", "internal_error"] do
+      assert {:error, message} =
+               Eyg.handle(
+                 "InspectTransport",
+                 args,
+                 fn :inspect_transport, _ ->
+                   {:ok, %{"ok" => false, "error" => %{"code" => code}}}
+                 end,
+                 nil
+               )
+
+      assert message =~ code
+    end
+
+    assert {:fatal, {:game_outcome_unconfirmed, :inspect_transport, {:error, :closed}}} =
+             Eyg.handle("InspectTransport", args, fn _, _ -> {:error, :closed} end, nil)
+
+    assert {:ok, %{"ok" => false}, _} =
+             run(
+               "perform InspectTransport({name:\"splitter\",position:{x2:0,y2:0}})",
+               ["InspectBot"],
+               fn _, _ -> flunk("not granted") end
+             )
+  end
+
   test "machine reads preserve ammo, fluids and electric state" do
     call = fn :inspect_machine, _ ->
       ok(%{

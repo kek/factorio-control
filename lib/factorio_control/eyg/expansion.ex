@@ -36,6 +36,18 @@ defmodule FactorioControl.Eyg.Expansion do
             tiles_complete: bool
           )
         ),
+      "InspectTransport" =>
+        contract(
+          record(name: text, position: position),
+          record(
+            tick: int,
+            name: text,
+            x_milli: int,
+            y_milli: int,
+            direction: int,
+            lanes: list(record(index: int, items: list(stack)))
+          )
+        ),
       "InspectWater" =>
         contract(
           record(radius: int),
@@ -139,6 +151,27 @@ defmodule FactorioControl.Eyg.Expansion do
                "health_milli" => milli(e["health"]),
                "max_health_milli" => milli(e["max_health"])
              }
+           end)
+       }}
+    end
+  end
+
+  def handle("InspectTransport", %{"name" => name, "position" => pos}, call, _)
+      when name in ["transport-belt", "underground-belt", "splitter"] do
+    with {:ok, pos} <- position(pos),
+         {:ok, r} <- invoke(call, :inspect_transport, %{"name" => name, "position" => pos}) do
+      t = r["data"]
+
+      {:ok,
+       %{
+         "tick" => r["tick"],
+         "name" => t["name"],
+         "x_milli" => milli(t["position"]["x"]),
+         "y_milli" => milli(t["position"]["y"]),
+         "direction" => t["direction"],
+         "lanes" =>
+           Enum.map(collection(t["lanes"]), fn lane ->
+             %{"index" => lane["index"], "items" => stacks(lane["items"])}
            end)
        }}
     end

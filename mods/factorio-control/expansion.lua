@@ -69,6 +69,25 @@ function M.register(methods, ctx)
     return {tiles = tiles, entities = entities, truncated = #found > 100}
   end
 
+  methods.inspect_transport = function(a)
+    args(a)
+    local allowed = {['transport-belt'] = true, ['underground-belt'] = true, splitter = true}
+    check(allowed[name(a.name)], 'unsupported_transport', 'expected a base belt, underground-belt or splitter')
+    local _, e = target(a)
+    check(allowed[e.name] and e.type == e.name and e.quality.name == 'normal',
+      'unsupported_transport', 'expected normal-quality base transport')
+    -- 2.1.24: query the actual maximum, including underground/ splitters' extra lines.
+    -- Never assume that every entity has only the two visible belt lanes.
+    local count = integer(e.get_max_transport_line_index(), 'transport line count', 1, 8)
+    local lanes = {}
+    for i = 1, count do
+      local line = e.get_transport_line(i)
+      check(line and line.valid, 'unsupported_transport', 'transport line is invalid')
+      lanes[#lanes + 1] = {index = i, items = bounded_contents(line)}
+    end
+    return {name = e.name, position = point(e.position), direction = e.direction, lanes = lanes}
+  end
+
   methods.inspect_water = function(a)
     args(a)
     local c = ctx.character()

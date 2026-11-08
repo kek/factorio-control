@@ -1,6 +1,6 @@
 # Bounded factory expansion effects
 
-Target: Factorio 2.1.24, factorio-control 0.2.6. Contracts are defined by
+Target: Factorio 2.1.24, factorio-control 0.2.7. Contracts are defined by
 `FactorioControl.Eyg.contracts/0` and `FactorioControl.Eyg.Expansion.contracts/0`.
 Gameplay still goes exclusively through EYG; no arbitrary Lua or item/research
 grants are exposed. Validate the headless server and typed interface, not the
@@ -11,6 +11,7 @@ graphical client's installation or connectivity.
 | Effect | Arguments | Observations |
 |---|---|---|
 | `InspectArea` | `{position:{x2,y2},radius}` | Generated terrain tiles (`x,y` are integer tile indices), water flags, up to 100 non-resource entities with force/health, entity `truncated` and `tiles_complete`. Radius 1–8, center within 64 tiles of the bot. Does not generate chunks. |
+| `InspectTransport` | `{name,position}` | Read-only normal-quality base `transport-belt`, `underground-belt`, or `splitter` on the bot's surface, within 64 tiles at a generated position. Returns `{tick,name,x_milli,y_milli,direction,lanes:[{index,items:[{name,quality,count}]}]}`. Direction is the actual integer `defines.direction` value. All real transport lines (1-based indices from `get_max_transport_line_index`, at most 8), including underground and splitter lines, are reported separately, even when empty; item qualities/counts are preserved. Errors propagate, never treated as empty lines. No inventory or entity state is changed. |
 | `InspectWater` | `{radius}` | Up to 200 generated water-collision tiles within 1–64 tiles of the bot, plus truncation. A truncated result does not identify the globally nearest shore. |
 | `InspectTechnology` | `{name}` | Enabled/researched state, prerequisites, science ingredients/cost, current progress and normal craft/mining trigger requirements. |
 | `InspectMachine` | `{name,position}` | Health, status, recipe, energy/network, separate input/output/fuel/ammo/storage inventories and fluid amounts/temperatures. Friendly inventories only; known position within 64 tiles of the bot. |
@@ -18,6 +19,14 @@ graphical client's installation or connectivity.
 Input positions use integer half tiles. Entity observations use thousandths;
 fluids, temperature, research progress and health also use integer thousandths.
 `energy_joules` is a rounded integer. Existing inspection contracts remain intact.
+`InspectTransport` uses the official 2.1.24
+[`get_max_transport_line_index` / `get_transport_line`](https://lua-api.factorio.com/2.1.24/classes/LuaEntity.html#get_max_transport_line_index)
+and [`LuaTransportLine.get_contents`](https://lua-api.factorio.com/2.1.24/classes/LuaTransportLine.html#get_contents)
+(array of `ItemWithQualityCount`), bounded to 256 distinct stacks per line.
+An unsupported line count or contents bound fails rather than truncating.
+Headless deployment and typed EYG probes confirmed 2 belt lines, 4 underground
+lines and all 8 splitter lines. It was then used to trace live copper, coal and
+ammunition flow; see `scenarios/resupply/`.
 Summarize large observations in the EYG result: a final result has a 12 KB budget,
 separate from protocol frame and per-query bounds. Full effect receipts remain
 in the trace. Missing/truncated observations must not be interpreted as empty land.
@@ -104,6 +113,7 @@ mutation is automatically retried. All per-action and wait tick limits remain
 ```sh
 lua test/lua/crafting_test.lua
 lua test/lua/expansion_test.lua
+lua test/lua/transport_test.lua
 lua test/lua/infrastructure_test.lua
 mix test
 ```
