@@ -2,7 +2,6 @@ defmodule FactorioControl.RefuelPipelineTest do
   use ExUnit.Case, async: true
   alias FactorioControl.Eyg
 
-  @worker FactorioControl.Eyg.Worker.path()
   @root Path.expand("../scenarios/iron-pipeline/refuel", __DIR__)
   defp ok(data), do: {:ok, %{"ok" => true, "tick" => 100, "data" => data}}
 
@@ -13,7 +12,6 @@ defmodule FactorioControl.RefuelPipelineTest do
 
     result =
       Eyg.run(nil, File.read!(Path.join(@root, name)),
-        worker: @worker,
         effects: ["WalkTo", "Build"],
         call: fn method, args ->
           Agent.update(calls, &[{method, args} | &1])

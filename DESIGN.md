@@ -77,22 +77,31 @@ The Elixir/mod production scenario subsequently walked to coal, mined 12 pieces,
 
 ## EYG effect boundary
 
-`FactorioControl.Eyg` uses the public `@kek/eyg-json-bridge` package, pinned to the
-v0.2.0 GitHub release artifact and lockfile integrity. `npm ci --ignore-scripts`
-installs its precompiled JavaScript without Gleam or a private config checkout.
-`FactorioControl.Eyg.Worker.path/1` resolves an explicit worker option, then
-`EYG_WORKER`, then this checkout's `node_modules/@kek/eyg-json-bridge/node/worker.mjs`.
+EYG programs run in the Elixir VM through the native BEAM adapter
+`:eyg_json_bridge_beam` of [`eyg_json_bridge`](https://github.com/kek/eyg-json-bridge)
+v0.3.0, pinned by git tag in `mix.lock`. The bridge composes the upstream Hex
+packages `eyg_parser`, `eyg_analysis` and `eyg_interpreter`; all are Gleam
+source compiled by `mix_gleam`. The same bridge core also backs the bridge's
+Node worker, so contract rules have one implementation.
 
-The package supplies a structural JSON bridge over upstream EYG and a Node
-NDJSON v1 adapter. It composes upstream parsing, checking and evaluation with a
-host-owned structural effect context, retaining each process-local continuation
-while Elixir handles the request. The v0.2.0 package/API rename leaves the v1
-wire protocol unchanged. Factorio imports no removed low-level engine API and
-needs no domain-contract or gameplay changes for this upgrade. Factorio's Elixir
-adapter retains credentials, RCON, grants, deadlines, process ownership, traces
-and game action recovery.
-This integration uses the supported Node transport; a native BEAM host adapter
-is outside this migration.
+The adapter converts host-owned JSON-shaped contracts (string, integer, boolean,
+list and exact record shapes; at most 32 effects, depth 8 and 64 fields) into an
+EYG effect context. It parses, rejects references/imports and type-checks before
+running anything, so ungranted effects and wrong argument shapes never start. At
+each unhandled effect it sends the JSON argument to its owner, validates the
+reply exactly and resumes with `Ok(value)` or `Error(message)`. A reply that does
+not match its contract is a terminal adapter failure, not a catchable error.
+Effect values and final results must stay within ±2⁵³−1; intermediate arithmetic
+may use BEAM bignums, unlike the earlier JavaScript evaluator. The adapter also
+enforces the effect budget and payload limits.
+
+Each run has a guardian process, which enforces the deadline (at most 300
+seconds), cancellation and owner-death cleanup, and a linked evaluator process
+with a heap cap (128 MiB here) that holds the continuation. The continuation is
+lost when the run ends. `FactorioControl.Eyg.Evaluator` is the Factorio side: it
+runs effect handlers under the same deadline, replies to the adapter, records the
+trace and maps outcomes to host results. Elixir retains credentials, RCON, grants,
+deadlines, traces and game action recovery.
 
 Every effect returns EYG `Result(value, String)`. `Inspect({radius})` returns a
 fixed `{tick, inventory, entities, truncated}` record. Inventory/output stacks
@@ -137,7 +146,7 @@ whether server auto-pause is preventing tick advancement.
 
 `scenarios/inspect.eyg` demonstrates these diagnostics with inspection-only
 grants. The example summarizes resource quantities rather than returning an
-entire large resource list, keeping its final result within the worker's 12 KB
+entire large resource list, keeping its final result within the evaluator's 12 KB
 result budget. Each read is a separate tick-stamped snapshot, not an atomic
 snapshot across multiple effects. Existing `Inspect({radius})` programs keep
 their original result shape.
@@ -157,7 +166,7 @@ operations; `count:0` where not applicable):
 | `Stop` | `{}` |
 
 Input positions use **integer half-tile units**, so `{x2:91,y2:35}` means
-`(45.5,17.5)`. Floats and null are not supported by the bridge. Position
+`(45.5,17.5)`. Floats and null are not supported by the evaluator. Position
 components are limited to ±2,000,000; counts to 1–1000; durations to 1–3600
 ticks; names to 100 UTF-8 bytes. The mod retains its stricter gameplay checks.
 `SpawnBot` explicitly grants empty-character creation/recovery; no administrator Lua escape hatch is exposed.
@@ -171,15 +180,15 @@ resuming as an ordinary error. Requests are never automatically retried or
 reconnected. IDs do not deduplicate lost acceptance replies.
 
 `Wait` polls game ticks (not elapsed wall time), with a separate 65-second wall
-limit. The whole run defaults to 300 seconds, maximum 600 seconds, including
+limit. The whole run defaults to and is capped at 300 seconds, including
 handlers, and allows at most 100 external effects. These are distinct from each
 action's in-game tick deadline. A paused game can reach a wall deadline without
 advancing its simulation deadline.
 
-The host kills its disposable Node worker at completion, timeout or host-process
+The host kills the evaluation process at completion, timeout or host-process
 death. A host-submitted walk/mine/craft action that lacks a confirmed rejection or
 matching terminal receipt on a returned host failure triggers one best-effort
-`stop` through the same connection, recorded separately. A worker request alone
+`stop` through the same connection, recorded separately. An evaluator request alone
 does not establish that an action was submitted. It does
 not reconnect, retry the action, undo a build/transfer, or establish that an
 uncertain mutation did not occur. A typecheck/read-only failure performs no
@@ -188,8 +197,8 @@ tick deadline remains the fallback. Concurrent controllers are unsupported.
 
 The CLI exclusively creates a private NDJSON trace and flushes requests,
 host submission attempts, acceptance receipts, terminal receipts and replies. Confirmed receipts also
-survive a worker/handler failure in the returned trace. Source hashes and worker
-paths aid audit but do not pin a save, runtime or mod version. Durable
+survive an evaluator/handler failure in the returned trace. Source hashes and EYG
+package versions aid audit but do not pin a save, runtime or mod version. Durable
 continuations, deterministic world replay, plan approvals, request deduplication
 and multi-host ownership remain future work. A fake backend can implement the
 same call/await callbacks; that tests orchestration, not collision, reachability
@@ -205,11 +214,12 @@ so exhaustion of that area requires choosing another waypoint.
 Verification includes fake-backend runs of `production.eyg` with empty, partially
 filled, and full furnace output, insufficient coal tiles and no remaining coal,
 unknown mutation replies, acceptance-receipt retention after handler timeout,
-restricted contexts, empty collection normalization, and killing a CPU-bound
-worker. A live EYG run with a depleted original coal tile and 100 plates in the
+restricted contexts, empty collection normalization, and killing CPU-bound or
+memory-exhausting evaluation. A live EYG run with a depleted original coal tile and 100 plates in the
 furnace successfully collected the plates and observed new output grow from 1
-to 2. The interpreter process still has
-OS permissions; this is an effect interface, not a hardened hostile-code sandbox.
+to 2. EYG has no ambient I/O, but evaluation shares the VM (and its OS
+permissions) with the host holding the RCON connection; this is an effect
+interface, not a hardened hostile-code sandbox.
 
 Further gameplay work includes asynchronous pathfinding, richer
 resource queries and construction-robot workflows. Verify new game APIs against

@@ -1,35 +1,49 @@
+defmodule FactorioControl.EygTest.ScriptedBridge do
+  @moduledoc false
+  # Stands in for :eyg_json_bridge_beam to bypass parsing and type checking, so
+  # tests can exercise the host's own grant boundary with requests a real run
+  # could never make. The caller stores the requests in its process dictionary.
+
+  def start(_code, _inputs, _contracts, _options) do
+    owner = self()
+    requests = Process.get(:scripted_requests, [])
+    pid = spawn(fn -> serve(owner, requests, 1) end)
+    {:ok, {__MODULE__, pid}}
+  end
+
+  def pid({__MODULE__, pid}), do: pid
+
+  def reply({__MODULE__, pid}, id, reply),
+    do: tap(:ok, fn _ -> send(pid, {:reply, id, reply}) end)
+
+  def cancel({__MODULE__, pid}), do: tap(:ok, fn _ -> Process.exit(pid, :kill) end)
+
+  defp serve(owner, [], _id),
+    do: send(owner, {:eyg_json_bridge, {__MODULE__, self()}, {:result, {:ok, "1"}}})
+
+  defp serve(owner, [{effect, argument} | rest], id) do
+    send(
+      owner,
+      {:eyg_json_bridge, {__MODULE__, self()},
+       {:effect_request, id, effect, JSON.encode!(argument)}}
+    )
+
+    receive do
+      {:reply, ^id, _} -> serve(owner, rest, id + 1)
+    end
+  end
+end
+
 defmodule FactorioControl.EygTest do
   use ExUnit.Case, async: true
-  alias FactorioControl.{Eyg, Eyg.Worker}
+  alias FactorioControl.{Eyg, Eyg.Evaluator}
 
-  @worker FactorioControl.Eyg.Worker.path()
-
-  defp options(extra), do: Keyword.merge([worker: @worker, timeout: 5000], extra)
+  defp options(extra), do: Keyword.merge([timeout: 5000], extra)
   defp ok(data, tick \\ 1), do: {:ok, %{"ok" => true, "tick" => tick, "data" => data}}
 
-  # Bypass evaluator typechecking to exercise the host's own grant boundary.
-  defp scripted_worker(requests) do
-    path = Path.join(System.tmp_dir!(), "eyg-requests-#{System.unique_integer([:positive])}.mjs")
-
-    File.write!(path, """
-    const requests = #{JSON.encode!(requests)};
-    let pending = '';
-    process.stdin.setEncoding('utf8');
-    process.stdin.on('data', chunk => {
-      pending += chunk;
-      let end;
-      while ((end = pending.indexOf('\\n')) >= 0) {
-        const frame = JSON.parse(pending.slice(0, end));
-        pending = pending.slice(end + 1);
-        if (frame.type === 'start' || frame.type === 'effect-response') {
-          console.log(JSON.stringify({version:1, type:'effect-request', ...requests.shift()}));
-        }
-      }
-    });
-    """)
-
-    on_exit(fn -> File.rm(path) end)
-    path
+  defp scripted(requests) do
+    Process.put(:scripted_requests, requests)
+    FactorioControl.EygTest.ScriptedBridge
   end
 
   defp world(count \\ 41) do
@@ -61,13 +75,12 @@ defmodule FactorioControl.EygTest do
   end
 
   for effect <- ["WalkTo", "Mine"] do
-    test "an unapproved #{effect} worker request cannot mutate a read-only run during cleanup" do
+    test "an unapproved #{effect} evaluator request cannot mutate a read-only run during cleanup" do
       owner = self()
-      worker = scripted_worker([%{id: 1, effect: unquote(effect), argument: %{}}])
 
       assert {:error, :unapproved_effect, trace} =
                Eyg.run(nil, "1",
-                 worker: worker,
+                 bridge: scripted([{unquote(effect), %{}}]),
                  effects: ["Inspect"],
                  call: fn method, _ ->
                    send(owner, {:game_called, method})
@@ -83,19 +96,13 @@ defmodule FactorioControl.EygTest do
   test "a completed action cannot justify cleanup for a later unapproved request" do
     owner = self()
 
-    worker =
-      scripted_worker([
-        %{
-          id: 1,
-          effect: "WalkTo",
-          argument: %{position: %{x2: 0, y2: 0}, timeout_ticks: 60}
-        },
-        %{id: 2, effect: "Mine", argument: %{}}
-      ])
-
     assert {:error, :unapproved_effect, trace} =
              Eyg.run(nil, "1",
-               worker: worker,
+               bridge:
+                 scripted([
+                   {"WalkTo", %{position: %{x2: 0, y2: 0}, timeout_ticks: 60}},
+                   {"Mine", %{}}
+                 ]),
                effects: ["WalkTo"],
                call: fn method, _ ->
                  send(owner, {:game_called, method})
@@ -173,8 +180,7 @@ defmodule FactorioControl.EygTest do
              Eyg.run(
                nil,
                "perform WalkTo({position: {x2: 0, y2: 0}, timeout_ticks: 60})",
-               # Include worker startup headroom under QEMU. The 5s handler
-               # still exceeds the deadline; this tests handler, not boot, timeout.
+               # The 5s handler exceeds the deadline; this tests handler timeout.
                options(call: call, await: await, timeout: 1500)
              )
 
@@ -390,28 +396,12 @@ defmodule FactorioControl.EygTest do
     refute_received {:game_called, _}
   end
 
-  test "the evaluator does not inherit host credentials or environment" do
-    path = Path.join(System.tmp_dir!(), "eyg-env-#{System.unique_integer([:positive])}.mjs")
-
-    File.write!(
-      path,
-      "console.log(JSON.stringify({version:1,type:'result',ok:true,value:Object.keys(process.env).sort()}))"
-    )
-
-    on_exit(fn -> File.rm(path) end)
-
-    assert {:ok, %{"value" => ["NODE_ENV"]}, _} =
-             Worker.run("1", %{}, fn _, _ -> flunk("no handler") end, worker: path, timeout: 1000)
-  end
-
-  test "host deadline kills a worker stuck in pure computation" do
-    path = Path.join(System.tmp_dir!(), "eyg-busy-#{System.unique_integer([:positive])}.mjs")
-    File.write!(path, "while (true) {}")
-    on_exit(fn -> File.rm(path) end)
+  test "host deadline stops evaluation stuck in pure computation" do
     started = System.monotonic_time(:millisecond)
+    loop = "let loop = !fix((self, x) -> { self(!int_add(x, 1)) })\nloop(0)"
 
     assert {:error, :run_timeout, []} =
-             Worker.run("1", %{}, fn _, _ -> flunk("no handler") end, worker: path, timeout: 100)
+             Evaluator.run(loop, %{}, fn _, _ -> flunk("no handler") end, timeout: 100)
 
     assert System.monotonic_time(:millisecond) - started < 2000
   end

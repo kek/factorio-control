@@ -65,7 +65,7 @@ Resource and power outposts remain guarded rather than fully walled.
 
 ## Read-only checks
 
-Set the normal worker/RCON environment first. Coordinates are half tiles in
+Set the RCON environment first. Coordinates are half tiles in
 program inputs and thousandths in observations.
 
 Near the factory centre (commissioning observation point: `(39.5,-15.5)`):

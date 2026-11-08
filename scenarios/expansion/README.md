@@ -67,7 +67,7 @@ items, research flags or administrator material fixtures were used.
 
 ## Safe checks
 
-With the normal worker and RCON environment configured:
+With the RCON environment configured:
 
 ```sh
 mix factorio.eyg --effects InspectBot,InspectMachine,InspectEntity scenarios/expansion/inspect-core.eyg

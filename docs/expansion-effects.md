@@ -118,7 +118,7 @@ lua test/lua/infrastructure_test.lua
 mix test
 ```
 
-Lua tests use isolated mocks; Elixir tests use fake calls and the real portable
+Lua tests use isolated mocks; Elixir tests use fake calls and the real in-VM EYG
 evaluator. They do not grant fixtures in the playing world. Live construction
 and verification used the headless server through typed EYG, with exclusive
 traces and original program sources retained under ignored `tmp/expansion/`.

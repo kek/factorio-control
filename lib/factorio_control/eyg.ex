@@ -1,6 +1,6 @@
 defmodule FactorioControl.Eyg do
   @moduledoc "Typed EYG gameplay effects backed by the existing Bot API."
-  alias FactorioControl.{Bot, Eyg.Worker}
+  alias FactorioControl.{Bot, Eyg.Evaluator}
 
   defp scalar(kind), do: %{"kind" => kind}
   defp record(fields), do: %{"kind" => "record", "fields" => Map.new(fields)}
@@ -205,7 +205,7 @@ defmodule FactorioControl.Eyg do
     context = Map.take(contracts(), allowed)
 
     result =
-      Worker.run(
+      Evaluator.run(
         code,
         context,
         fn effect, argument ->
@@ -216,7 +216,7 @@ defmodule FactorioControl.Eyg do
         opts
       )
 
-    # Only host-side submissions can trigger cancellation. Worker requests alone
+    # Only host-side submissions can trigger cancellation. Evaluator requests alone
     # are not evidence that a permitted action reached the game.
     case result do
       {:error, _, trace} ->

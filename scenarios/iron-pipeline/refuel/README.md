@@ -42,7 +42,7 @@ preserved in the ignored `tmp/refuel/` directory.
 
 ## Safe checks
 
-With the normal worker/RCON environment configured:
+With the RCON environment configured:
 
 ```sh
 mix factorio.eyg --effects InspectBot,InspectEntity scenarios/iron-pipeline/inspect.eyg

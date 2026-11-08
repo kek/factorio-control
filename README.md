@@ -1,6 +1,6 @@
 # Factorio Control
 
-An Elixir host controls a character on a headless Factorio server through a small Lua mod. EYG programs can use the same constrained gameplay interface through an Elixir effect host and an external portable evaluator.
+An Elixir host controls a character on a headless Factorio server through a small Lua mod. EYG programs can use the same constrained gameplay interface through an Elixir effect host that embeds the upstream EYG interpreter.
 
 **Status:** working prototype on **Factorio 2.1.24**. RCON, inspection, walking, mining, placement, inventory transfers, and iron production have been exercised on the local server. The EYG coal-to-iron program has also passed on the live server, including a depleted coal tile and a full furnace output. Recipe-driven crafting is available; pathfinding remains future work.
 
@@ -89,10 +89,10 @@ A lost command response returns `{:error, {:unknown_outcome, reason}}` and close
 
 ## Verification
 
-Install the pinned Node runtime first (Node 24+ and npm; no Gleam compiler needed):
+Install the Gleam toolchain and fetch dependencies first (see [EYG programs](#eyg-programs)):
 
 ```sh
-npm ci --ignore-scripts
+mix deps.get
 mix test
 # Opt-in: modifies the running test world with a small temporary fixture.
 mix test --include live
@@ -106,44 +106,36 @@ Both production scenarios use the existing POC iron drill at `(29,-42)`, furnace
 
 ## EYG programs
 
-The evaluator is the public [`@kek/eyg-json-bridge`](https://github.com/kek/eyg-json-bridge)
-package, pinned to **v0.2.0** by its GitHub release URL in `package.json` and
-integrity hash in `package-lock.json`. Install it with Node 24+ and npm:
+EYG programs run inside the Elixir VM through the native BEAM adapter of
+[`eyg_json_bridge`](https://github.com/kek/eyg-json-bridge), pinned to the
+`v0.3.0` git tag in `mix.lock`. The bridge composes the upstream Hex packages
+`eyg_parser` 0.5.2, `eyg_analysis` 3.0.1 and `eyg_interpreter` 9.0.0, which parse,
+type-check and evaluate programs. All of them are Gleam source, so the build
+compiles them with [`mix_gleam`](https://github.com/gleam-lang/mix_gleam).
+One-time setup needs the `gleam` compiler on `PATH` (tested with Gleam 1.19.2):
 
 ```sh
-npm ci --ignore-scripts
-mix test --max-cases 1
+mix archive.install hex mix_gleam
+mix deps.get
+mix test
 ```
 
-The release contains compiled JavaScript; neither Gleam nor a private config
-checkout is required. There are no runtime npm dependencies inside the evaluator
-and no Hex dependencies in the Elixir host. Generated `node_modules/` stays
-unversioned; commit the package manifest and lockfile.
+The `deps.get` alias also runs `gleam.deps.get` and fetches Hex packages one at a
+time (`HEX_HTTP_CONCURRENCY=1` unless already set), because parallel fetches can
+race with mix_gleam's dependency rewriting and leave a package half extracted.
+If that happened in an earlier checkout, delete `deps/` and fetch again.
 
-Commands and tests default to this checkout's installed
-`node_modules/@kek/eyg-json-bridge/node/worker.mjs`. Normally leave `EYG_WORKER`
-unset. For a deliberate custom runtime, `--worker PATH` takes precedence over
-`EYG_WORKER`, which takes precedence over the installed package. Missing workers
-produce an installation hint before connecting to the game.
-
-The package bridges JSON contracts to upstream EYG evaluation through the
-[Node v1 protocol](https://github.com/kek/eyg-json-bridge/blob/v0.2.0/PROTOCOL.md).
-Upstream EYG owns language semantics and continuations. Factorio retains effect
-grants/handlers, RCON, receipts, action recovery, wall-clock deadlines and Node
-process ownership.
-
-### Upgrading from eyg-runtime v0.1.1
-
-Follow the upstream [migration guide](https://github.com/kek/eyg-json-bridge/blob/v0.2.0/docs/MIGRATION.md).
-Run `npm ci --ignore-scripts` after updating this checkout. Remove or update any
-explicit `EYG_WORKER` / `--worker` override pointing at the old package. Drain or
-terminate active evaluations before switching versions; continuations are
-process-local and cannot migrate. Do not replay uncertain game mutations.
-
-This host uses the documented worker entry point, not the renamed in-process
-`./bridge` export or the removed low-level engine wrapper. **Wire version stays
-1**; existing EYG programs, effect contracts and game handlers are unchanged.
-This upgrade does not introduce a native BEAM adapter or `touch_grass` effects.
+The bridge adapter (`:eyg_json_bridge_beam`) turns the JSON-shaped effect
+contracts into EYG types, rejects programs that use ungranted effects or wrong
+shapes before they run, validates every effect argument and host reply exactly,
+and enforces the effect budget and payload limits. A guardian process enforces
+the deadline and stops evaluation if its owner dies; the evaluator process holds
+the continuation under a heap cap (128 MiB here). `FactorioControl.Eyg.Evaluator`
+is the Factorio side: it calls effect handlers under the run deadline, sends
+replies, writes the trace and maps adapter outcomes to host results. Effect
+values and final results stay within ±2⁵³−1; arithmetic in between can use larger
+BEAM integers. Continuations exist only in the evaluator process and are lost
+when a run ends.
 
 ### Run a program
 
@@ -166,16 +158,16 @@ plates; collected plates remain in the bot inventory.
 `--effects` is the host's capability selection, checked before evaluation; the
 program cannot add effects. Omit it to enable all available effects, including
 the read-only inspections below and the bounded expansion effects.
-`--worker`, `--timeout` (milliseconds, default 300000, maximum 600000),
+`--timeout` (milliseconds, default and maximum 300000),
 `--max-effects` (default/maximum 100), `--host`, `--port` and `--trace` are
 available. No arbitrary Lua, RCON, shell, filesystem or network effect is exposed.
 
 Each run writes an exclusive mode-0600 NDJSON trace to the printed temporary
 path, or `--trace PATH`. Requests precede gameplay calls; game acceptance and
 terminal action receipts are flushed separately before resuming the program.
-The trace includes a source hash, chosen effects and worker path. Preserve the
-source and worker revision alongside it for replay; this is not a deterministic
-world replay or durable continuation store.
+The trace includes a source hash, chosen effects and the EYG package versions.
+Preserve the source and checkout revision alongside it for replay; this is not a
+deterministic world replay or durable continuation store.
 
 See [the EYG integration design](DESIGN.md#eyg-effect-boundary) for contracts,
 coordinate units and failure/cancellation behavior.

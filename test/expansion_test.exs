@@ -2,11 +2,10 @@ defmodule FactorioControl.ExpansionTest do
   use ExUnit.Case, async: true
   alias FactorioControl.Eyg
 
-  @worker FactorioControl.Eyg.Worker.path()
   defp ok(data), do: {:ok, %{"ok" => true, "tick" => 100, "data" => data}}
 
   defp run(code, effects, call, extra \\ []) do
-    Eyg.run(nil, code, Keyword.merge([worker: @worker, effects: effects, call: call], extra))
+    Eyg.run(nil, code, Keyword.merge([effects: effects, call: call], extra))
   end
 
   test "area inspection converts half tiles, bounds queries, and reports observed terrain" do

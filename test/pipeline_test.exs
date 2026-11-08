@@ -2,7 +2,6 @@ defmodule FactorioControl.PipelineTest do
   use ExUnit.Case, async: true
   alias FactorioControl.Eyg
 
-  @worker FactorioControl.Eyg.Worker.path()
   defp ok(data), do: {:ok, %{"ok" => true, "tick" => 100, "data" => data}}
 
   defp run_phase(phase, reads) do
@@ -23,7 +22,6 @@ defmodule FactorioControl.PipelineTest do
 
     result =
       Eyg.run(nil, code,
-        worker: @worker,
         call: call,
         await: fn 1 -> ok(%{"id" => 1, "status" => "completed", "count" => 1}) end
       )

@@ -2,8 +2,6 @@ defmodule FactorioControl.InspectionTest do
   use ExUnit.Case, async: true
   alias FactorioControl.Eyg
 
-  @worker FactorioControl.Eyg.Worker.path()
-
   defp ok(data), do: {:ok, %{"ok" => true, "tick" => 900, "data" => data}}
   defp stack(name, count), do: %{"name" => name, "count" => count, "quality" => "normal"}
 
@@ -105,9 +103,8 @@ defmodule FactorioControl.InspectionTest do
                 "count" => 3,
                 "speed" => 500
               }
-            },
-            trace} =
-             Eyg.run(nil, code, worker: @worker, effects: effects, call: call, timeout: 5000)
+            }, trace} =
+             Eyg.run(nil, code, effects: effects, call: call, timeout: 5000)
 
     requests = for %{"type" => "effect-request", "effect" => name} <- trace, do: name
     assert Enum.sort(Enum.uniq(requests)) == Enum.sort(effects)
@@ -161,7 +158,6 @@ defmodule FactorioControl.InspectionTest do
 
     assert {:ok, %{"ok" => true, "value" => result}, _} =
              Eyg.run(nil, code,
-               worker: @worker,
                effects: ~w(InspectBot InspectEntity InspectResources InspectSimulation),
                call: call
              )

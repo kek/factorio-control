@@ -1,7 +1,7 @@
 ---
 name: factorio
 description: Inspect and play Factorio through the factorio-control project's typed EYG effects. Use for moving the bot, mining, crafting, building, transferring items, diagnosing factories, and constructing or verifying production automation. Includes safe recovery after failed or uncertain actions.
-compatibility: A factorio-control checkout, matching running server/mod, Elixir/OTP, Node 24+, npm, and the locked @kek/eyg-json-bridge dependency.
+compatibility: A factorio-control checkout, matching running server/mod, Elixir/OTP, the Gleam compiler with the mix_gleam archive, and the locked eyg_json_bridge and EYG dependencies.
 ---
 
 # Play Factorio
@@ -40,19 +40,16 @@ headless distribution, saves, build output and local credentials are unversioned
   set -a; source .envrc; set +a
   ```
 
-- EYG evaluation requires Node 24+ and the public `@kek/eyg-json-bridge` package
-  pinned by this checkout's `package.json` and `package-lock.json`. Install with
-  `npm ci --ignore-scripts`; the release includes compiled JavaScript and needs
-  no Gleam compiler or private config checkout.
-- Commands and tests default to
-  `node_modules/@kek/eyg-json-bridge/node/worker.mjs`, resolved from this checkout.
-  Normally leave `EYG_WORKER` unset. For intentional custom-runtime testing,
-  `--worker PATH` overrides `EYG_WORKER`, which overrides the installed package.
-  Installing dependencies is an explicit setup step, never an automatic action
-  during evaluation. When upgrading from `eyg-runtime`, clear or update old worker
-  overrides and drain or terminate active evaluations before switching versions.
-  The Node protocol remains v1; never transfer continuations between versions or
-  replay uncertain mutations as part of migration.
+- EYG programs are evaluated inside the Elixir VM by the native BEAM adapter of
+  `eyg_json_bridge` (git tag pinned in `mix.lock`) and the upstream EYG Hex
+  packages. They ship Gleam source only, so building needs
+  the `gleam` compiler on `PATH` and the `mix_gleam` archive
+  (`mix archive.install hex mix_gleam`), then `mix deps.get`. Installing
+  dependencies is an explicit setup step, never an automatic action during
+  evaluation. If `deps/` holds a half-extracted package from an interrupted
+  fetch, delete `deps/` and fetch again.
+- Continuations live only inside a run's evaluation process. Never transfer or
+  replay them across runs, and never replay uncertain mutations after a failure.
 - Factorio multiplayer defaults to **UDP 34197** and RCON to **TCP 27015**.
   `mix factorio.eyg` defaults to RCON at `localhost:27015`; select another
   endpoint with `--host HOST --port PORT`. RCON is unencrypted: keep it on a
@@ -186,10 +183,10 @@ moving on, and size each step by the calculation formulas in the reference.
   action/wait durations **1–3600 ticks**, and craft counts **1–100 batches**.
   Other count limits and supported items are contract-specific. Check the source.
 - At normal speed 60 ticks = one second. A single `Wait` has a separate 65-second
-  wall limit. Whole runs default to 300 seconds, maximum 600 seconds. Select both
+  wall limit. Whole runs default to and are capped at 300 seconds. Select both
   tick and wall deadlines to cover work plus overhead; leave the outer tool's
   timeout longer than the planned run. Split large jobs instead of overrun risks.
-- Preserve each `.eyg` source and its worker version/hash alongside an exclusive
+- Preserve each `.eyg` source and the checkout revision alongside an exclusive
   per-run `--trace` path, preferably in ignored project `tmp/` storage retained
   across sessions. Snapshot a failed source before editing it. Never overwrite
   execution evidence or commit credentials, saves, binaries or private traces.

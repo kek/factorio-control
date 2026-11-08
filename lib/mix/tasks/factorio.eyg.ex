@@ -1,7 +1,7 @@
 defmodule Mix.Tasks.Factorio.Eyg do
   use Mix.Task
   @shortdoc "Run a typed EYG program against the existing Factorio bot"
-  alias FactorioControl.{Eyg, Eyg.Worker, Rcon}
+  alias FactorioControl.{Eyg, Rcon}
 
   def run(args) do
     Mix.Task.run("app.start")
@@ -9,7 +9,6 @@ defmodule Mix.Tasks.Factorio.Eyg do
     {opts, args, invalid} =
       OptionParser.parse(args,
         strict: [
-          worker: :string,
           timeout: :integer,
           max_effects: :integer,
           effects: :string,
@@ -28,17 +27,15 @@ defmodule Mix.Tasks.Factorio.Eyg do
 
         _ ->
           Mix.raise(
-            "Usage: mix factorio.eyg [--worker PATH] [--effects Inspect,WalkTo,...] [--trace PATH] FILE.eyg"
+            "Usage: mix factorio.eyg [--effects Inspect,WalkTo,...] [--trace PATH] FILE.eyg"
           )
       end
 
-    worker = Worker.path(opts)
+    if (timeout = opts[:timeout]) && timeout not in 1..300_000,
+      do: Mix.raise("--timeout must be 1..300000 milliseconds")
 
-    unless File.regular?(worker),
-      do:
-        Mix.raise(
-          "Worker does not exist: #{worker}. Run npm ci --ignore-scripts, or set EYG_WORKER / --worker."
-        )
+    if (max = opts[:max_effects]) && max not in 1..100,
+      do: Mix.raise("--max-effects must be 1..100")
 
     code = File.read!(file)
     password = System.get_env("FACTORIO_RCON_PASSWORD") || Mix.raise("Set FACTORIO_RCON_PASSWORD")
@@ -60,7 +57,7 @@ defmodule Mix.Tasks.Factorio.Eyg do
     run_opts =
       opts
       |> Keyword.take([:timeout, :max_effects])
-      |> Keyword.merge(worker: Path.expand(worker), trace: trace)
+      |> Keyword.put(:trace, trace)
 
     run_opts =
       if opts[:effects],
@@ -70,7 +67,7 @@ defmodule Mix.Tasks.Factorio.Eyg do
     trace.(%{
       type: "start",
       source_sha256: Base.encode16(:crypto.hash(:sha256, code), case: :lower),
-      worker: Path.expand(worker),
+      evaluator: evaluator_versions(),
       effects: Keyword.get(run_opts, :effects, Map.keys(Eyg.contracts()))
     })
 
@@ -103,5 +100,11 @@ defmodule Mix.Tasks.Factorio.Eyg do
     after
       File.close(trace_file)
     end
+  end
+
+  defp evaluator_versions do
+    Map.new([:eyg_parser, :eyg_analysis, :eyg_interpreter], fn app ->
+      {app, to_string(Application.spec(app, :vsn) || "unknown")}
+    end)
   end
 end

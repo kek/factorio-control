@@ -2,7 +2,6 @@ defmodule FactorioControl.CraftingTest do
   use ExUnit.Case, async: true
   alias FactorioControl.Eyg
 
-  @worker FactorioControl.Eyg.Worker.path()
   defp ok(data), do: {:ok, %{"ok" => true, "tick" => 100, "data" => data}}
 
   test "Craft submits once and reports actual produced items after completion" do
@@ -19,7 +18,7 @@ defmodule FactorioControl.CraftingTest do
       "match perform Craft({recipe: \"transport-belt\", count: 2, timeout_ticks: 600}) { Ok(x) -> {x.count} Error(_) -> {0} }"
 
     assert {:ok, %{"value" => 4}, trace} =
-             Eyg.run(nil, code, worker: @worker, effects: ["Craft"], call: call, await: await)
+             Eyg.run(nil, code, effects: ["Craft"], call: call, await: await)
 
     assert_received {:craft,
                      %{"recipe" => "transport-belt", "count" => 2, "timeout_ticks" => 600}}
@@ -39,7 +38,6 @@ defmodule FactorioControl.CraftingTest do
 
     assert {:error, {:game_outcome_unconfirmed, :craft, _}, trace} =
              Eyg.run(nil, "perform Craft({recipe: \"iron-chest\", count: 1, timeout_ticks: 600})",
-               worker: @worker,
                effects: ["Craft"],
                call: call
              )
@@ -67,7 +65,7 @@ defmodule FactorioControl.CraftingTest do
       "match perform Craft({recipe: \"iron-chest\", count: 1, timeout_ticks: 600}) { Ok(_) -> {1} Error(_) -> {0} }"
 
     assert {:ok, %{"value" => 0}, trace} =
-             Eyg.run(nil, code, worker: @worker, effects: ["Craft"], call: call)
+             Eyg.run(nil, code, effects: ["Craft"], call: call)
 
     assert_received :submitted
     refute Enum.any?(trace, &match?(%{type: "cleanup_stop"}, &1))
@@ -107,7 +105,6 @@ defmodule FactorioControl.CraftingTest do
              Eyg.run(
                nil,
                "match perform InspectRecipe({name: \"transport-belt\"}) { Ok(x) -> {x.recipe.time_milli} Error(_) -> {0} }",
-               worker: @worker,
                effects: ["InspectRecipe"],
                call: call
              )
@@ -136,7 +133,7 @@ defmodule FactorioControl.CraftingTest do
       "match perform Rotate({name: \"burner-inserter\", position: {x2: 51, y2: -77}, direction: \"north\"}) { Ok(_) -> {1} Error(_) -> {0} }"
 
     assert {:ok, %{"value" => 1}, _} =
-             Eyg.run(nil, code, worker: @worker, effects: ["Rotate"], call: call)
+             Eyg.run(nil, code, effects: ["Rotate"], call: call)
 
     assert_received {:rotated,
                      %{
