@@ -7,6 +7,6 @@
     "node": ">=24"
   },
   "dependencies": {
-    "@kek/eyg-runtime": "https://github.com/kek/eyg-runtime/releases/download/v0.1.1/kek-eyg-runtime-0.1.1.tgz"
+    "@kek/eyg-json-bridge": "https://github.com/kek/eyg-json-bridge/releases/download/v0.2.0/kek-eyg-json-bridge-0.2.0.tgz"
   }
 }

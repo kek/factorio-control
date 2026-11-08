@@ -2,7 +2,7 @@ defmodule FactorioControl.Eyg.Worker do
   @moduledoc "Bounded host for the shared EYG NDJSON worker; never forwards raw Lua."
   @frame_limit 64_000
   @default_worker Path.expand(
-                    "../../../node_modules/@kek/eyg-runtime/node/worker.mjs",
+                    "../../../node_modules/@kek/eyg-json-bridge/node/worker.mjs",
                     __DIR__
                   )
 

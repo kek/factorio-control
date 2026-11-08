@@ -2,7 +2,7 @@ defmodule FactorioControl.RuntimeDependencyTest do
   use ExUnit.Case, async: false
   alias FactorioControl.{Eyg, Eyg.Worker}
 
-  @package Path.expand("../node_modules/@kek/eyg-runtime", __DIR__)
+  @package Path.expand("../node_modules/@kek/eyg-json-bridge", __DIR__)
   @worker Path.join(@package, "node/worker.mjs")
   @scenario Path.expand("../scenarios/simulation.eyg", __DIR__)
 
@@ -23,14 +23,87 @@ defmodule FactorioControl.RuntimeDependencyTest do
 
     package = JSON.decode!(File.read!(Path.join(@package, "package.json")))
     dependency = JSON.decode!(File.read!(Path.expand("../package.json", __DIR__)))
-    assert package["name"] == "@kek/eyg-runtime"
+    assert package["name"] == "@kek/eyg-json-bridge"
+    assert package["exports"]["./worker"] == "./node/worker.mjs"
 
     assert String.ends_with?(
-             dependency["dependencies"]["@kek/eyg-runtime"],
-             "/v#{package["version"]}/kek-eyg-runtime-#{package["version"]}.tgz"
+             dependency["dependencies"]["@kek/eyg-json-bridge"],
+             "/v#{package["version"]}/kek-eyg-json-bridge-#{package["version"]}.tgz"
            )
 
     File.cd!(__DIR__, fn -> assert Worker.path() == @worker end)
+  end
+
+  defp count_contract do
+    %{
+      "ReadCount" => %{
+        argument: %{kind: "record", fields: %{}},
+        result: %{kind: "integer"}
+      }
+    }
+  end
+
+  @read_count "match perform ReadCount({}) { Ok(n) -> {n} Error(_) -> {99} }"
+
+  test "bridge retains sequential v1 request/reply frames and catchable host errors" do
+    for {reply, expected} <- [{{:ok, 7}, 7}, {{:error, "denied"}, 99}] do
+      assert {:ok, %{"ok" => true, "value" => ^expected}, trace} =
+               Worker.run(@read_count, count_contract(), fn "ReadCount", %{} -> reply end,
+                 timeout: 5000
+               )
+
+      assert [
+               %{"version" => 1, "type" => "effect-request", "id" => 1},
+               %{"version" => 1, "type" => "effect-response", "id" => 1},
+               %{"version" => 1, "type" => "result", "ok" => true}
+             ] = trace
+    end
+  end
+
+  test "invalid typed replies are fatal rather than resuming the Error branch" do
+    for value <- ["7", %{}, 9_007_199_254_740_992] do
+      assert {:error, {:worker_protocol, %{"version" => 1, "type" => "error", "error" => error}},
+              _} =
+               Worker.run(@read_count, count_contract(), fn "ReadCount", %{} -> {:ok, value} end,
+                 timeout: 5000
+               )
+
+      assert is_binary(error) and error != ""
+    end
+  end
+
+  test "bridge still rejects extra fields in exact record replies" do
+    contracts = %{
+      "ReadCount" => %{
+        argument: %{kind: "record", fields: %{}},
+        result: %{kind: "record", fields: %{count: %{kind: "integer"}}}
+      }
+    }
+
+    assert {:error,
+            {:worker_protocol,
+             %{"version" => 1, "type" => "error", "error" => "Expected exact record"}},
+            _} =
+             Worker.run(
+               "match perform ReadCount({}) { Ok(n) -> {n.count} Error(_) -> {99} }",
+               contracts,
+               fn "ReadCount", %{} -> {:ok, %{count: 7, extra: true}} end,
+               timeout: 5000
+             )
+  end
+
+  test "bridge enforces the effect budget before a second host call" do
+    assert {:ok, %{"ok" => false, "error" => error}, trace} =
+             Worker.run(
+               "let _ = perform ReadCount({})\n" <> @read_count,
+               count_contract(),
+               fn "ReadCount", %{} -> {:ok, 7} end,
+               max_effects: 1,
+               timeout: 5000
+             )
+
+    assert error =~ "effect"
+    assert Enum.count(trace, &match?(%{"type" => "effect-request"}, &1)) == 1
   end
 
   test "explicit worker overrides environment, which overrides the installed package" do
