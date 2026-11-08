@@ -106,8 +106,8 @@ Both production scenarios use the existing POC iron drill at `(29,-42)`, furnace
 
 ## EYG programs
 
-The evaluator is the public [`@kek/eyg-runtime`](https://github.com/kek/eyg-runtime)
-package, pinned to **v0.1.1** by its GitHub release URL in `package.json` and
+The evaluator is the public [`@kek/eyg-json-bridge`](https://github.com/kek/eyg-json-bridge)
+package, pinned to **v0.2.0** by its GitHub release URL in `package.json` and
 integrity hash in `package-lock.json`. Install it with Node 24+ and npm:
 
 ```sh
@@ -121,15 +121,31 @@ and no Hex dependencies in the Elixir host. Generated `node_modules/` stays
 unversioned; commit the package manifest and lockfile.
 
 Commands and tests default to this checkout's installed
-`node_modules/@kek/eyg-runtime/node/worker.mjs`. Normally leave `EYG_WORKER`
+`node_modules/@kek/eyg-json-bridge/node/worker.mjs`. Normally leave `EYG_WORKER`
 unset. For a deliberate custom runtime, `--worker PATH` takes precedence over
 `EYG_WORKER`, which takes precedence over the installed package. Missing workers
 produce an installation hint before connecting to the game.
 
-The public package owns evaluation and the
-[Node v1 protocol](https://github.com/kek/eyg-runtime/blob/v0.1.1/PROTOCOL.md).
-Factorio retains effect grants/handlers, RCON, receipts, action recovery,
-wall-clock deadlines and Node process ownership.
+The package bridges JSON contracts to upstream EYG evaluation through the
+[Node v1 protocol](https://github.com/kek/eyg-json-bridge/blob/v0.2.0/PROTOCOL.md).
+Upstream EYG owns language semantics and continuations. Factorio retains effect
+grants/handlers, RCON, receipts, action recovery, wall-clock deadlines and Node
+process ownership.
+
+### Upgrading from eyg-runtime v0.1.1
+
+Follow the upstream [migration guide](https://github.com/kek/eyg-json-bridge/blob/v0.2.0/docs/MIGRATION.md).
+Run `npm ci --ignore-scripts` after updating this checkout. Remove or update any
+explicit `EYG_WORKER` / `--worker` override pointing at the old package. Drain or
+terminate active evaluations before switching versions; continuations are
+process-local and cannot migrate. Do not replay uncertain game mutations.
+
+This host uses the documented worker entry point, not the renamed in-process
+`./bridge` export or the removed low-level engine wrapper. **Wire version stays
+1**; existing EYG programs, effect contracts and game handlers are unchanged.
+This upgrade does not introduce a native BEAM adapter or `touch_grass` effects.
+
+### Run a program
 
 With a running server, RCON credentials and an existing idle bot, run:
 

@@ -77,16 +77,20 @@ The Elixir/mod production scenario subsequently walked to coal, mined 12 pieces,
 
 ## EYG effect boundary
 
-`FactorioControl.Eyg` uses the public `@kek/eyg-runtime` package, pinned to the
-v0.1.1 GitHub release artifact and lockfile integrity. `npm ci --ignore-scripts`
+`FactorioControl.Eyg` uses the public `@kek/eyg-json-bridge` package, pinned to the
+v0.2.0 GitHub release artifact and lockfile integrity. `npm ci --ignore-scripts`
 installs its precompiled JavaScript without Gleam or a private config checkout.
 `FactorioControl.Eyg.Worker.path/1` resolves an explicit worker option, then
-`EYG_WORKER`, then this checkout's `node_modules/@kek/eyg-runtime/node/worker.mjs`.
+`EYG_WORKER`, then this checkout's `node_modules/@kek/eyg-json-bridge/node/worker.mjs`.
 
-The package supplies the Gleam evaluation core and Node NDJSON v1 adapter. It
-parses, checks a host-owned structural effect context and retains the continuation
-while Elixir handles each request. Factorio's Elixir adapter retains credentials,
-RCON, grants, deadlines, process ownership, traces and game action recovery.
+The package supplies a structural JSON bridge over upstream EYG and a Node
+NDJSON v1 adapter. It composes upstream parsing, checking and evaluation with a
+host-owned structural effect context, retaining each process-local continuation
+while Elixir handles the request. The v0.2.0 package/API rename leaves the v1
+wire protocol unchanged. Factorio imports no removed low-level engine API and
+needs no domain-contract or gameplay changes for this upgrade. Factorio's Elixir
+adapter retains credentials, RCON, grants, deadlines, process ownership, traces
+and game action recovery.
 This integration uses the supported Node transport; a native BEAM host adapter
 is outside this migration.
 

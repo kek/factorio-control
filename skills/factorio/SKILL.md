@@ -1,7 +1,7 @@
 ---
 name: factorio
 description: Inspect and play Factorio through the factorio-control project's typed EYG effects. Use for moving the bot, mining, crafting, building, transferring items, diagnosing factories, and constructing or verifying production automation. Includes safe recovery after failed or uncertain actions.
-compatibility: A factorio-control checkout, matching running server/mod, Elixir/OTP, Node 24+, npm, and the locked @kek/eyg-runtime dependency.
+compatibility: A factorio-control checkout, matching running server/mod, Elixir/OTP, Node 24+, npm, and the locked @kek/eyg-json-bridge dependency.
 ---
 
 # Play Factorio
@@ -40,16 +40,19 @@ headless distribution, saves, build output and local credentials are unversioned
   set -a; source .envrc; set +a
   ```
 
-- EYG evaluation requires Node 24+ and the public `@kek/eyg-runtime` package
+- EYG evaluation requires Node 24+ and the public `@kek/eyg-json-bridge` package
   pinned by this checkout's `package.json` and `package-lock.json`. Install with
   `npm ci --ignore-scripts`; the release includes compiled JavaScript and needs
   no Gleam compiler or private config checkout.
 - Commands and tests default to
-  `node_modules/@kek/eyg-runtime/node/worker.mjs`, resolved from this checkout.
+  `node_modules/@kek/eyg-json-bridge/node/worker.mjs`, resolved from this checkout.
   Normally leave `EYG_WORKER` unset. For intentional custom-runtime testing,
   `--worker PATH` overrides `EYG_WORKER`, which overrides the installed package.
   Installing dependencies is an explicit setup step, never an automatic action
-  during evaluation.
+  during evaluation. When upgrading from `eyg-runtime`, clear or update old worker
+  overrides and drain or terminate active evaluations before switching versions.
+  The Node protocol remains v1; never transfer continuations between versions or
+  replay uncertain mutations as part of migration.
 - Factorio multiplayer defaults to **UDP 34197** and RCON to **TCP 27015**.
   `mix factorio.eyg` defaults to RCON at `localhost:27015`; select another
   endpoint with `--host HOST --port PORT`. RCON is unencrypted: keep it on a
