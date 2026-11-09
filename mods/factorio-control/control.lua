@@ -49,9 +49,22 @@ end
 local function distance(a, b)
   return math.sqrt((a.x - b.x)^2 + (a.y - b.y)^2)
 end
-local function state()
+-- Factorio dispatches requests and tick handlers synchronously. This context is
+-- selected only by the trusted request envelope, never by individual effects.
+local selected_bot = "default"
+local MAX_BOTS = 8
+local function registry()
   storage.bot = storage.bot or {sequence = 0, actions = {}}
-  return storage.bot
+  storage.bots = storage.bots or {}
+  -- Preserve the legacy object (including its inventory and in-flight action).
+  -- Keep storage.bot as a compatibility alias for the default actor.
+  storage.bots.default = storage.bot
+  return storage.bots
+end
+local function state()
+  local b = registry()[selected_bot]
+  check(b ~= nil, "unknown_bot", "Spawn the selected bot explicitly first")
+  return b
 end
 local function character()
   local c = state().character
@@ -564,10 +577,18 @@ require("expansion").register(methods, {
 
 script.on_init(function() state() end)
 script.on_event(defines.events.on_tick, function()
-  local ok, err = pcall(tick)
-  if not ok then
-    finish("failed", "internal_error", type(err) == "table" and err.message or tostring(err))
+  local names = {}
+  for name in pairs(registry()) do names[#names + 1] = name end
+  table.sort(names)
+  local previous = selected_bot
+  for _, name in ipairs(names) do
+    selected_bot = name
+    local ok, err = pcall(tick)
+    if not ok then
+      finish("failed", "internal_error", type(err) == "table" and err.message or tostring(err))
+    end
   end
+  selected_bot = previous
 end)
 remote.add_interface("bot", {
   request = function(request)
@@ -581,7 +602,30 @@ remote.add_interface("bot", {
     if request.args ~= nil and type(request.args) ~= "table" then
       return {ok = false, tick = game.tick, error = {code = "invalid_argument", message = "args must be an object"}}
     end
+    local name = request.bot
+    if name == nil then name = "default" end
+    if type(name) ~= "string" or #name < 1 or #name > 32 or not name:match("^[a-z][a-z0-9_-]*$") then
+      return {ok = false, tick = game.tick, error = {code = "invalid_bot", message = "Expected a bot name matching [a-z][a-z0-9_-]{0,31}"}}
+    end
+    local bots = registry()
+    local created = false
+    if not bots[name] then
+      if request.method ~= "spawn" then
+        return {ok = false, tick = game.tick, error = {code = "unknown_bot", message = "Spawn the selected bot explicitly first"}}
+      end
+      local count = 0
+      for _ in pairs(bots) do count = count + 1 end
+      if count >= MAX_BOTS then
+        return {ok = false, tick = game.tick, error = {code = "bot_limit", message = "At most eight named bots are supported"}}
+      end
+      bots[name] = {sequence = 0, actions = {}}
+      created = true
+    end
+    local previous = selected_bot
+    selected_bot = name
     local ok, result = pcall(handler, request.args or {})
+    selected_bot = previous
+    if not ok and created then bots[name] = nil end
     if ok then return {ok = true, tick = game.tick, data = result} end
     local err = type(result) == "table" and result or {code = "internal_error", message = tostring(result)}
     return {ok = false, tick = game.tick, error = err}

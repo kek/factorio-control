@@ -1,11 +1,9 @@
 {
   "name": "factorio-control",
-  "version": "0.2.8",
+  "version": "0.3.0",
   "title": "Factorio Control",
   "author": "Factorio Control contributors",
   "factorio_version": "2.1",
-  "dependencies": [
-    "base >= 2.1.24"
-  ],
-  "description": "A bounded, inventory-backed character interface with factory infrastructure, research and defense controls."
+  "dependencies": ["base >= 2.1.24"],
+  "description": "Bounded, inventory-backed named characters with independent actions, factory infrastructure, research and defense controls."
 }

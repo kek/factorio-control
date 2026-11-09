@@ -1,6 +1,6 @@
 # Bounded factory expansion effects
 
-Target: Factorio 2.1.24, factorio-control 0.2.7. Contracts are defined by
+Target: Factorio 2.1.24, factorio-control 0.3.0. Contracts are defined by
 `FactorioControl.Eyg.contracts/0` and `FactorioControl.Eyg.Expansion.contracts/0`.
 Gameplay still goes exclusively through EYG; no arbitrary Lua or item/research
 grants are exposed. Validate the headless server and typed interface, not the
@@ -96,7 +96,12 @@ not a guaranteed material yield. Walking remains straight-line steering without
 general pathfinding: survey, use clear waypoints, or mine an observed neutral
 obstacle normally instead of repeating a blocked walk.
 
-`SpawnBot({position})` explicitly creates an empty character if the old actor is
+All effects are bound to the run's `--bot NAME` (default `default`). Up to eight
+actors have separate inventories/actions; shared machines and research still need
+coordination. Only `SpawnBot` creates an unknown name. Use the same name for
+inspection, polling and recovery; action IDs are actor-local.
+
+`SpawnBot({position})` explicitly creates an empty character if the selected actor is
 absent, or returns the living existing bot without granting items. An unowned
 NPC character corpse can be inspected with `InspectEntity` and looted using
 `Transfer` / `main`; corpses associated with an existing player are excluded. A unique 0.4-tile lookup

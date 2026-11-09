@@ -61,13 +61,15 @@ Building checks the supported item and its `place_result`, inventory, distance, 
 
 ## Action lifecycle and persistence
 
-The mod stores the bot, sequence counter, active action, and the latest 64 action records in its own Factorio `storage`. One walk, mine or craft action can run at once. Other mutations reject requests while it runs; inspection, status queries, and stopping remain available.
+The mod stores up to eight named actors in `storage.bots`, each with its own character, sequence counter, active action and latest 64 action records. The legacy `storage.bot` object is preserved as the `default` actor, including any active action. One walk, mine or craft action can run per actor at once. Other mutations for that actor reject requests while it runs; inspection, status queries, and stopping remain available. A sorted bounded tick loop services all actors; failed actions on one do not cancel another.
+
+The host selects an actor once per EYG run with `--bot NAME` (default `default`) and includes it in every request envelope, poll and cleanup. Names match `[a-z][a-z0-9_-]{0,31}`. Selection is not an EYG effect and cannot be switched by program code. Only explicit `SpawnBot` can allocate a new actor, empty and subject to normal safe placement. Unknown names otherwise fail closed. Action IDs are actor-local. Use one controller per actor; there are no leases or shared-machine reservations. Research and the physical world remain shared, and server restarts require coordination.
 
 Actions transition from `running` to `completed`, `failed`, or `cancelled`. Records include ID, kind, start/deadline ticks, finish tick when terminal, and error details when failed. Mine actions report the collected count. Death/removal fails the active action. `on_tick` work is bounded: update movement or mining state, check progress/deadline, and clear state on completion. It performs no broad world scans.
 
 Mining must call `update_selected_entity` as well as setting `mining_state`; setting the mining position alone did not sustain mining on the standalone character. Walking and mining are reapplied each tick. An unexpected tick-handler error fails the action and stops the character.
 
-A host disconnect leaves the mod-owned bounded action running. `Bot.await` polls `action` without resubmitting it. Its wall-clock timeout does not cancel the in-game action; query or stop explicitly. Save/load persists active actions, deadlines, inventory, and IDs; game ticks resume from the saved tick. No `on_load` mutation is needed. Unsaved work cannot be recovered after a crash. Expired action records cannot be queried. Other actors modifying the bot inventory can affect mine-count completion, so only one host should control it.
+A host disconnect leaves the mod-owned bounded action running. `Bot.await` polls `action` without resubmitting it. Its wall-clock timeout does not cancel the in-game action; query or stop explicitly. Save/load persists active actions, deadlines, inventory, and IDs; game ticks resume from the saved tick. No `on_load` mutation is needed. Unsaved work cannot be recovered after a crash. Expired action records cannot be queried. Other actors modifying the bot inventory can affect mine-count completion, so only one host should control each named actor.
 
 ## Verification and current evidence
 
@@ -190,7 +192,7 @@ does not establish that an action was submitted. It does
 not reconnect, retry the action, undo a build/transfer, or establish that an
 uncertain mutation did not occur. A typecheck/read-only failure performs no
 cleanup mutation. Abrupt VM/application death may prevent cleanup; the mod's
-tick deadline remains the fallback. Concurrent controllers are unsupported.
+tick deadline remains the fallback. Concurrent controllers of the same named actor are unsupported; controllers of different named actors are isolated at the character/action level.
 
 The CLI exclusively creates a private NDJSON trace and flushes requests,
 host submission attempts, acceptance receipts, terminal receipts and replies. Confirmed receipts also

@@ -83,7 +83,7 @@ Bot.await(client, id)
 Rcon.close(client)
 ```
 
-`Bot.call` returns `{:ok, response}` when transport and JSON decoding succeed. Check `response["ok"]` for game acceptance, then an asynchronous action's terminal `status` for completion. `Bot.await` polls status without resubmitting the action. Only one movement/mining action runs at once; immediate mutations reject requests while it is active.
+`Bot.call` returns `{:ok, response}` when transport and JSON decoding succeed. Check `response["ok"]` for game acceptance, then an asynchronous action's terminal `status` for completion. `Bot.await` polls status without resubmitting the action. Only one movement/mining/crafting action runs at once per named bot; immediate mutations for that bot reject requests while it is active.
 
 A lost command response returns `{:error, {:unknown_outcome, reason}}` and closes the connection. Reconnect and inspect world/inventory/action state before deciding what to do. The client never retries a mutation or reconnects automatically. Tick deadlines survive host disconnects; time does not advance while the game itself is paused.
 
@@ -169,6 +169,40 @@ deterministic world replay or durable continuation store.
 
 See [the EYG integration design](DESIGN.md#eyg-effect-boundary) for contracts,
 coordinate units and failure/cancellation behavior.
+
+## Named characters and concurrent agents
+
+Each EYG run is bound to one character with `--bot NAME` (default: `default`).
+Names match `[a-z][a-z0-9_-]{0,31}`. Up to **eight** named characters, including
+`default`, are supported. The existing save's character, inventory and action
+history remain `default`; old commands and EYG programs continue to address it.
+
+```sh
+mix factorio.eyg --bot mining --effects SpawnBot tmp/spawn-mining.eyg
+mix factorio.eyg --bot mining --effects InspectBot tmp/inspect-mining.eyg
+```
+
+Create the first program with an explicitly selected safe spawn position:
+
+```text
+match perform SpawnBot({position:{x2:79,y2:-31}}) {
+  Ok(s) -> {{success:True({}),existing:s.existing,error:""}}
+  Error(e) -> {{success:False({}),existing:False({}),error:e}}
+}
+```
+
+`SpawnBot` creates an **empty** character; it grants no supplies. Existing named
+characters are returned unchanged. Other effects reject unknown bot names rather
+than spawning implicitly. Inspect with an ordinary `InspectBot({})` program;
+its meaning is fixed by `--bot`, not by the program itself. Each actor has its
+own inventory, active action, sequence and latest 64 action records. Polling,
+Stop and timeout cleanup stay bound to that actor. Traces record the bot name.
+
+Use **one controller per named character**. Different names can work concurrently,
+but share research, machinery, chests and the world: divide jobs and coordinate
+shared resources. There is no controller lease or reservation of machines.
+Keep the same bot selection when recovering a failed run; action IDs are local
+to that bot. Save/restart still affects every agent and must be coordinated.
 
 ## Read-only EYG inspections
 

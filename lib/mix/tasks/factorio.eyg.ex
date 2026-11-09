@@ -1,7 +1,7 @@
 defmodule Mix.Tasks.Factorio.Eyg do
   use Mix.Task
   @shortdoc "Run a typed EYG program against the existing Factorio bot"
-  alias FactorioControl.{Eyg, Rcon}
+  alias FactorioControl.{Bot, Eyg, Rcon}
 
   def run(args) do
     Mix.Task.run("app.start")
@@ -14,7 +14,8 @@ defmodule Mix.Tasks.Factorio.Eyg do
           effects: :string,
           trace: :string,
           host: :string,
-          port: :integer
+          port: :integer,
+          bot: :string
         ]
       )
 
@@ -27,7 +28,7 @@ defmodule Mix.Tasks.Factorio.Eyg do
 
         _ ->
           Mix.raise(
-            "Usage: mix factorio.eyg [--effects Inspect,WalkTo,...] [--trace PATH] FILE.eyg"
+            "Usage: mix factorio.eyg [--bot NAME] [--effects Inspect,WalkTo,...] [--trace PATH] FILE.eyg"
           )
       end
 
@@ -36,6 +37,13 @@ defmodule Mix.Tasks.Factorio.Eyg do
 
     if (max = opts[:max_effects]) && max not in 1..100,
       do: Mix.raise("--max-effects must be 1..100")
+
+    bot =
+      try do
+        Bot.validate_name!(Keyword.get(opts, :bot, "default"))
+      rescue
+        e in ArgumentError -> Mix.raise("--#{Exception.message(e)}")
+      end
 
     code = File.read!(file)
     password = System.get_env("FACTORIO_RCON_PASSWORD") || Mix.raise("Set FACTORIO_RCON_PASSWORD")
@@ -58,6 +66,7 @@ defmodule Mix.Tasks.Factorio.Eyg do
       opts
       |> Keyword.take([:timeout, :max_effects])
       |> Keyword.put(:trace, trace)
+      |> Keyword.put(:bot, bot)
 
     run_opts =
       if opts[:effects],
@@ -66,6 +75,7 @@ defmodule Mix.Tasks.Factorio.Eyg do
 
     trace.(%{
       type: "start",
+      bot: bot,
       source_sha256: Base.encode16(:crypto.hash(:sha256, code), case: :lower),
       evaluator: evaluator_versions(),
       effects: Keyword.get(run_opts, :effects, Map.keys(Eyg.contracts()))

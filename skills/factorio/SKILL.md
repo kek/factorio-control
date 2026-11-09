@@ -22,8 +22,12 @@ compatibility: A factorio-control checkout, matching running server/mod, Elixir/
    relevant machines, available resources, and recipes. Check game version, tick
    advancement, resource/list truncation, and whether another action is active.
    Existing save-specific scenario coordinates are leads, not fresh observations.
-5. Use one bot controller at a time. The mod-owned bot is separate from the user's
-   character. Do not move, mine, craft or transfer merely to answer a status query.
+5. Use one controller per named bot. Select a stable `--bot NAME` for every run
+   and recovery; omission addresses `default`, the original save's actor. Up to
+   eight named characters can work concurrently with separate inventory/actions,
+   but research, machines and resources remain shared. Coordinate shared work and
+   all server restarts. New names require explicit empty `SpawnBot`; inspections
+   never create them. Do not move, mine, craft or transfer for a status query.
 
 ## Run factorio-control
 

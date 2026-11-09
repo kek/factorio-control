@@ -161,8 +161,12 @@ defmodule FactorioControl.Eyg do
   end
 
   def run(client, code, opts \\ []) do
-    raw_call = Keyword.get(opts, :call, fn method, args -> Bot.call(client, method, args) end)
-    raw_await = Keyword.get(opts, :await, fn id -> Bot.await(client, id) end)
+    bot = Bot.validate_name!(Keyword.get(opts, :bot, "default"))
+
+    raw_call =
+      Keyword.get(opts, :call, fn method, args -> Bot.call(client, method, args, bot: bot) end)
+
+    raw_await = Keyword.get(opts, :await, fn id -> Bot.await(client, id, 65_000, bot: bot) end)
     owner = self()
     receipt_ref = make_ref()
 
