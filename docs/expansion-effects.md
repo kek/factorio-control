@@ -33,14 +33,15 @@ in the trace. Missing/truncated observations must not be interpreted as empty la
 
 ## Construction and configuration
 
-`Build` now has a finite allowlist of starter drills, furnaces/chests, belts,
-splitters/undergrounds, inserters, small poles, assembler-1, pipes, pump, boiler,
-steam engine, lab, gun turret and stone wall. See `control.lua` for exact names.
+`Build` accepts plain `item` prototypes with an entity `place_result`, including
+later-tier and modded buildings. Stateful vehicle items, tiles and rail planners
+need dedicated placement support.
 Normal inventory, reach, placement/collision rules and quality restrictions still
 apply. X and Y grid parity are checked independently after rotating rectangular
 footprints. Blocked placements consume nothing; a failed item removal rolls the
-new entity back. Count-only placement/transfers reject damaged building stacks,
-so mining and rebuilding cannot silently repair them.
+new entity back. Count-only placement rejects damaged building stacks, so mining
+and rebuilding cannot silently repair them. Transfers use native stack movement
+and preserve damage.
 
 | Effect | Arguments | Restrictions |
 |---|---|---|
@@ -51,8 +52,8 @@ so mining and rebuilding cannot silently repair them.
 
 The mod uses `create_entity`, not every player placement event/undo behavior.
 Check real pickup/drop targets, fluids, network connections and output growth.
-Blueprint ghosts, arbitrary prototypes, higher qualities and general logistics
-configuration are not supported by these effects.
+Blueprint deployment, stateful vehicle/tile/rail placement, higher-quality
+selection and general logistics configuration remain unsupported.
 
 ## Research and normal crafting
 
@@ -75,21 +76,42 @@ unfinished batches, set a technology flag, or insert another item. The live lab
 craft then unlocked red science via the normal craft-item requirement. Cancellation
 cancels remaining owned batches at the queue head, preserving later foreign work.
 
-The only additional consumable prototypes allowed are full base
-`firearm-magazine` and `automation-science-pack`. Factorio 2.1 can represent a
-pristine full consumable as a simple stack: check `is_ammo`/`is_tool` before
-reading metadata accessors, which otherwise throw. Used ammo/science is not taken
-from turret/lab inventories, and partially consumed source stacks are rejected.
+Crafting accepts a guaranteed output of any registered item type. Transfers
+move native stacks of all registered item types at normal quality, including
+partially consumed ammo/tools, blueprints, tags and equipment. Metadata is not
+reconstructed or serialized. Destination bars and native slot restrictions apply;
+a successful receipt may report less than the requested quantity when capacity
+runs out. Always check its actual count before dependent work.
 
 `Transfer` additionally supports assembler/lab `input` and turret `ammo`. Existing
 selectors retain their meaning. No count-only transfer refreshes a magazine,
 science pack or damaged building's metadata.
 
+## Rotation
+
+`Rotate({name,position,direction})` accepts cardinal absolute headings for friendly,
+reachable item-placeable infrastructure with native `supports_direction` and
+`rotatable` flags. It calls native [`LuaEntity.rotate`](https://lua-api.factorio.com/2.1.24/classes/LuaEntity.html#rotate),
+never directly sets `direction`, and therefore respects collision and linked-end
+rules. It uses at most 16 native steps, stopping on rejection or a repeated
+heading. Already-oriented entities are a no-op. A headless 2.1.24 probe confirmed
+that a placed splitter can reverse on its existing axis but cannot reach the
+perpendicular heading through native rotation. That request fails rather than
+forcing a direction assignment. A `rotation_incomplete` error can follow partial
+changes and includes actual heading details: inspect before further work, rather than resubmitting the failed operation. No automatic rollback occurs.
+
+`InspectEntity` now reports `direction` (integer `defines.direction` value),
+`supports_direction`, `rotatable` and `minable`. These are native capability flags,
+not permission to bypass ownership, item-placeability or the host's excluded types.
+
 ## Actor recovery and removal
 
 `MineObject({name,position,timeout_ticks})` performs normal character mining of a
-minable neutral tree/rock or friendly allowlisted infrastructure. It uses the
-existing asynchronous action/deadline/stop lifecycle. No instant destruction,
+minable neutral tree/rock or friendly infrastructure whose prototype has
+`items_to_place_this`, regardless of base-game name or tier. Characters, units,
+resources, ghosts and corpses are excluded. Native minability and character
+reach are checked before acceptance and rechecked with ownership during mining.
+It uses the existing asynchronous action/deadline/stop lifecycle. No instant destruction,
 teleport or item grant is performed. Inventory and partial results must be
 inspected after interruption; the terminal count describes a removed object,
 not a guaranteed material yield. Walking remains straight-line steering without

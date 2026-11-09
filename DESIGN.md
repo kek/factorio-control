@@ -52,12 +52,12 @@ Success responses are `{ok = true, tick = game.tick, data = ...}`. Errors are `{
 | `mine` | Resource `position`, matching output `item`, optional `count` (1–1000, default 1) and `timeout_ticks` | Mines a single resource tile in reach using normal mining progress, until the inventory increases by `count`. Depletion before completion fails with partial count reported. |
 | `action` | `id` | Current or terminal action record; unknown/expired IDs return an error. |
 | `stop` | None | Cancels the active action and explicitly clears walking, mining, and selection. Safe to repeat. |
-| `build` | `item`, `position`, optional cardinal `direction` | Inventory-backed placement of a starter drill, furnace, wooden chest, transport belt, or burner inserter. Returns the actual entity summary. |
-| `transfer` | `entity` name, `position`, `inventory`, `direction` (`take`/`give`), `item`, `count` (1–1000) | Transfers exactly the requested quantity of normal-quality ordinary items to/from a reachable friendly entity. No transfer on insufficient items or capacity. |
+| `build` | `item`, `position`, optional cardinal `direction` | Inventory-backed placement of any plain item prototype with an entity place result, subject to normal-quality, damage, grid and reach checks. Returns the actual entity summary. |
+| `transfer` | `entity` name, `position`, `inventory`, `direction` (`take`/`give`), `item`, `count` (1–1000) | Transfers normal-quality native stacks of any registered item type to/from a reachable friendly entity. Insufficient source quantity is rejected; partial destination capacity returns the actual moved count. |
 
-Transfer inventory selectors are `fuel`, `output`, furnace/assembler/lab `input`, turret `ammo`, and chest/character `main`. Unowned NPC corpses also support read-only inventory inspection and `main` recovery; corpses associated with an existing player are excluded. Ordinary normal-quality items and full base firearm magazines/red science packs are supported. Partially consumed magazines/tools cannot be refreshed by a count-only transfer; taking used consumables from turrets or labs is rejected. Blueprints and other arbitrary metadata stacks, higher quality, ghosts, fast replacement and arbitrary prototypes remain unsupported. `MineObject` performs normal mining of neutral trees/rocks or friendly allowlisted infrastructure.
+Transfer inventory selectors are `fuel`, `output`, furnace/assembler/lab `input`, turret `ammo`, and chest/character `main`. Unowned NPC corpses also support read-only inventory inspection and `main` recovery; corpses associated with an existing player are excluded. All registered item prototype types can be transferred at normal quality. Native `LuaItemStack.transfer_stack(source, amount)` preserves metadata, including partial ammo/durability, health, spoilage, blueprints, tags and equipment grids. No name/count reconstruction or metadata serialization occurs. Transfers respect the destination bar and native slot restrictions; they scan at most 1,024 source slots and 65,536 slot pairs. The typed receipt uses the actual moved count, including partial-capacity success; callers must inspect it before dependent work. Higher-quality selection, blueprint deployment, tile placement, stateful vehicle placement, ghosts and fast replacement remain unsupported. `MineObject` performs normal mining of neutral trees/rocks or friendly item-placeable infrastructure, without prototype-name restrictions. Native `minable` and character reach are required; ownership, eligibility and reach are rechecked during the action. Characters, units, resources, ghosts and corpses are excluded even if a mod adds a placement item.
 
-Building checks the supported item and its `place_result`, inventory, distance, grid alignment, character placement rules and surface collision rules before creation. Odd tile dimensions require half-integer coordinates; even dimensions require integers. Width and height are checked independently and swapped for east/west orientation, supporting rectangular splitters, boilers and generators. The item is consumed only after entity creation succeeds; failed removal destroys the newly created entity. The implementation uses validated `create_entity`, rather than promising equivalence with every player event/undo behavior. Other gameplay mods have not been tested.
+Building checks the plain item prototype and its `place_result`, inventory, distance, grid alignment, character placement rules and surface collision rules before creation. Odd tile dimensions require half-integer coordinates; even dimensions require integers. Width and height are checked independently and swapped for east/west orientation, supporting rectangular splitters, boilers and generators. The item is consumed only after entity creation succeeds; failed removal destroys the newly created entity. The implementation uses validated `create_entity`, rather than promising equivalence with every player event/undo behavior. Other gameplay mods have not been tested.
 
 ## Action lifecycle and persistence
 
@@ -157,7 +157,7 @@ operations; `count:0` where not applicable):
 | --- | --- |
 | `WalkTo` | `{position:{x2,y2},timeout_ticks}` |
 | `Mine` | `{position:{x2,y2},item,count,timeout_ticks}` |
-| `Rotate` | `{name,position,direction}`; cardinal orientation, friendly reachable starter drills/inserters/belts |
+| `Rotate` | `{name,position,direction}`; absolute cardinal orientation of friendly reachable item-placeable infrastructure with native `supports_direction` and `rotatable` capabilities |
 | `Craft` | `{recipe,count,timeout_ticks}`; 1–100 batches, explicit intermediate crafts |
 | `Build` | `{position:{x2,y2},item,direction}`; direction is `north/east/south/west` |
 | `Transfer` | `{position:{x2,y2},entity,inventory,direction,item,count}` |
@@ -242,9 +242,9 @@ recursive ingredient crafting.
 through the same action lifecycle as walking/mining. The count is 1–100 recipe
 batches; terminal receipts count actual output items. The mod restricts recipes
 to enabled `crafting` categories, integer item inputs, and a single guaranteed
-supported item result. Ordinary items plus full base firearm magazines and
-red science packs are allowed. It checks all ingredients and output capacity
-before starting. No fluids, arbitrary metadata stacks, probabilistic outputs or
+item result of any registered prototype type. New outputs use their default
+stack state; crafting does not copy metadata from consumed ingredients. It checks
+all ingredients and output capacity before starting. No fluids, probabilistic outputs, arbitrary metadata creation or
 item grants are supported.
 
 The initial native approach encountered a player-only API on the standalone
@@ -271,6 +271,14 @@ pipeline without administrator Lua or generated materials.
 The iron pipeline's inserters require `north` to pick up from the furnace and
 place into the chest south of the arm. This was checked with actual pickup/drop
 targets, rather than inferred from mining-drill orientation. `Rotate` changes
-only a reachable friendly supported entity's cardinal direction; it neither
-creates an entity nor retries an uncertain change. `service.eyg` uses this effect
-and inventory inspections to restore flow and top up fuel from the coal station.
+a reachable friendly item-placeable entity to a cardinal direction using native
+`LuaEntity.rotate`, so collision and linked-entity rules remain in force. There
+is no direct direction assignment. Already-oriented targets are a no-op; other
+requests use at most 16 native steps and stop on rejection or a repeated heading.
+Failure returns `rotation_incomplete` with original/current/requested headings
+and can leave a partial rotation. It never rolls back or retries uncertain
+mutations. `InspectEntity` exposes the actual integer direction plus native
+`supports_direction`, `rotatable` and `minable` flags for preflight/recovery;
+these flags do not override ownership or host eligibility rules. `service.eyg`
+uses this effect and inventory inspections to restore flow and top up fuel from
+the coal station.

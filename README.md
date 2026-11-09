@@ -223,7 +223,7 @@ the server; your standalone client needs the same mod when joining.
 | Effect | Available information |
 | --- | --- |
 | `InspectBot({})` | Position, health, surface, inventory, and active action (if any). |
-| `InspectEntity({name,position:{x2,y2}})` | One entity on the bot's surface, including symbolic status (`full_output`, `no_fuel`, etc.), resource amount, and separate main, fuel, input and output inventories where supported. The lookup does not require the bot to be within interaction reach. |
+| `InspectEntity({name,position:{x2,y2}})` | One entity on the bot's surface, including native `direction`, `supports_direction`, `rotatable`, `minable`, symbolic status (`full_output`, `no_fuel`, etc.), resource amount, and separate main, fuel, input and output inventories where supported. The lookup does not require the bot to be within interaction reach. |
 | `InspectResources({item,radius})` | Positions and remaining quantities for up to 200 matching resource tiles within 0–64 tiles of the bot, plus a truncation flag. |
 | `InspectAction({id})` | Action status, partial collected count, target, tick deadlines, and error details. IDs come from action receipts in the trace; only the latest 64 actions are retained. |
 | `InspectSimulation({})` | Tick, game speed, explicit pause flag, connected player count, and game version. Works even before spawning a bot. |
@@ -244,8 +244,8 @@ RCON/Lua or Bot API calls are not a gameplay or planning fallback. Mod deploymen
 and Port-owned server lifecycle operations are separate from gameplay.
 
 `Craft({recipe,count,timeout_ticks})` crafts 1–100 batches of an unlocked recipe
-with a single guaranteed supported item output (ordinary items, full firearm magazines or red science packs). `InspectRecipe({name})` exposes
-categories, ingredient quantities, products, base crafting time and the number
+with a single guaranteed item output of any registered item prototype type.
+`InspectRecipe({name})` exposes categories, ingredient quantities, products, base crafting time and the number
 of batches affordable from **directly available normal-quality ingredients**.
 Craft intermediate items explicitly. This implementation uses a mod-owned crafting action rather than a player
 hand-crafting queue; it enforces base recipe time and consumes the direct
@@ -254,11 +254,39 @@ items and consumes nothing for unfinished batches. The receipt count is produced
 items, which may differ from the requested batch count (for example belts).
 
 `InspectEntity` also exposes pickup/drop positions and target entity names for
-inserters and mining drills. `Build` supports iron chests as well as the existing
-starter buildings. `Rotate({name,position,direction})` sets a reachable friendly
-starter inserter, drill or belt to an absolute cardinal direction. The output
-inserters in this layout use `north`: their pickup is from the furnace above
-and their drop goes into the chest below, verified through connection inspection.
+inserters and mining drills. `Build` accepts any plain `item` prototype with an
+entity `place_result`, including later-tier and modded buildings. It retains
+normal-quality, undamaged-item, cardinal-direction and tile-grid checks. Tile
+items, rail planners and stateful vehicle items need separate placement support.
+
+`Rotate({name,position,direction})` orients reachable friendly item-placeable
+infrastructure to an absolute cardinal direction through native engine rotation.
+It accepts later-tier and modded prototypes when `supports_direction` and
+`rotatable` are true; collisions and entity-specific constraints still apply.
+Already-oriented entities are a no-op. Up to 16 native steps are allowed; a blocked
+or unreachable heading returns `rotation_incomplete`, possibly after a partial
+rotation. Inspect the actual direction before continuing after that error.
+
+`MineObject({name,position,timeout_ticks})` normally mines neutral trees/rocks or
+friendly item-placeable infrastructure of any tier, including modded prototypes.
+It requires native minability and reach, and rechecks permission/reach during the
+action. Characters, units, resources, ghosts and corpses are excluded. Resources
+use `Mine`; corpse inventory recovery uses `Transfer`. Mining preserves the
+normal engine recovery behavior rather than manufacturing replacement items.
+
+The output inserters in this layout use `north`: their pickup is from the furnace
+above and their drop goes into the chest below, verified through connection inspection.
+
+`Transfer` accepts every registered item prototype type and moves native stacks,
+including blueprints/books, armor with equipment, tagged items, damaged items,
+spoilable items and partially consumed ammunition/tools. Selection remains
+normal-quality only; metadata is preserved but not exposed in inventory summaries.
+Destination filters, slot restrictions and inventory bars still apply. Insufficient
+source quantity is rejected before moving anything. If destination capacity runs
+out, a successful receipt reports the **actual moved count**, possibly less than
+requested. Check that count before dependent actions; never blindly repeat a
+partially completed transfer. Zero-capacity transfers fail without moving items.
+Transfers are bounded to 1,024 source slots and 65,536 source/destination slot pairs.
 
 The EYG files in `scenarios/iron-pipeline/` implement this save's starter pipeline:
 
