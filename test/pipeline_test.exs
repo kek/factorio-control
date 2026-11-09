@@ -14,7 +14,13 @@ defmodule FactorioControl.PipelineTest do
       if method in [:walk_to, :mine, :craft] do
         ok(%{"id" => 1})
       else
-        reads.(method, args)
+        case reads.(method, args) do
+          {:ok, %{"ok" => true, "data" => data} = response} when method == :transfer ->
+            {:ok, Map.put(response, "data", Map.put(data, "count", args["count"]))}
+
+          result ->
+            result
+        end
       end
     end
 

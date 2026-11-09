@@ -123,7 +123,10 @@ local function reset()
 end
 local function entity(name, kind, force, x)
   local e = {name = name, type = kind, force = force or c.force, valid = true,
-    minable = true, position = {x = x or 1, y = 0}}
+    minable = true, position = {x = x or 1, y = 0}, prototype = {},
+    direction = defines.direction.north, supports_direction = false, rotatable = false,
+    get_inventory = function() end, get_fuel_inventory = function() end,
+    get_output_inventory = function() end}
   world[#world + 1] = e
   return e
 end
@@ -135,7 +138,7 @@ local function recipe(product, amount)
   return c.force.recipes.test
 end
 local function build(item, w, h)
-  prototypes.item[item] = {type = 'item', place_result = {name = item, tile_width = w, tile_height = h}}
+  prototypes.item[item] = {type = 'item', place_result = {name = item, type = item == 'underground-belt' and 'underground-belt' or 'container', tile_width = w, tile_height = h}}
   main.items[item] = 10
 end
 local passed, failed = 0, 0
@@ -164,10 +167,11 @@ test('spawn creates an empty character only when the previous bot is absent', fu
   assert(not made.existing);eq(creates,1);eq(next(storage.bot.character.get_main_inventory().items),nil)
 end)
 
-test('expanded build allowlist and rejected placement conserves items', function()
+test('prototype-based building supports later tiers and modded plain items', function()
   for _, item in ipairs({'splitter', 'underground-belt', 'assembling-machine-1', 'inserter',
     'small-electric-pole', 'electric-mining-drill', 'boiler', 'steam-engine', 'offshore-pump',
-    'pipe', 'pipe-to-ground', 'lab', 'gun-turret', 'stone-wall', 'small-lamp'}) do
+    'pipe', 'pipe-to-ground', 'lab', 'gun-turret', 'stone-wall', 'small-lamp',
+    'assembling-machine-3', 'fast-transport-belt', 'modded-building'}) do
     build(item, 1, 1)
     ok('build', {item = item, position = {x = 0.5, y = 0.5}})
     eq(main.items[item], 9)
@@ -184,6 +188,18 @@ test('expanded build allowlist and rejected placement conserves items', function
   surface.create_entity = function() return nil end
   denied('blocked', 'build', {item = 'splitter', position = {x = 0, y = 0.5}})
   eq(main.items.splitter, 10)
+end)
+
+test('building rejects unknown, nonplaceable and stateful items without consuming stock', function()
+  denied('unsupported_item', 'build', {item = 'unknown', position = {x = .5, y = .5}})
+  denied('unsupported_item', 'build', {item = 'repair-pack', position = {x = .5, y = .5}})
+  build('car', 2, 2); prototypes.item.car.type = 'item-with-entity-data'
+  denied('unsupported_item', 'build', {item = 'car', position = {x = 0, y = 0}})
+  eq(main.items.car, 10); eq(#created, 0)
+  build('fast-underground-belt', 1, 1)
+  prototypes.item['fast-underground-belt'].place_result.type = 'underground-belt'
+  ok('build', {item = 'fast-underground-belt', position = {x = .5, y = .5}, end_type = 'output'})
+  eq(created[1].type, 'output')
 end)
 
 test('lamps require owned stock, aligned reachable unblocked placement', function()
@@ -214,8 +230,9 @@ test('underground endpoints use explicit input/output types without arbitrary pr
   denied('invalid_argument','build_underground',{position={x=.5,y=.5},end_type='other'})
 end)
 
-test('friendly allowlisted belts are mined normally, never hostile infrastructure', function()
+test('friendly item-placeable belts are mined normally, never hostile infrastructure', function()
   local e=entity('transport-belt','transport-belt')
+  e.prototype.items_to_place_this = {{name = 'transport-belt', count = 1}}
   c.update_selected_entity=function() c.selected=e end
   ok('mine_object',{name='transport-belt',position=e.position,timeout_ticks=10})
   advance(1); assert(c.mining_state.mining)
@@ -249,75 +266,122 @@ test('build rolls back created entity when source removal fails', function()
   eq(created.destroyed, true); eq(main.items.lab, 10)
 end)
 
-test('Craft supports ordinary items and full magazine/science outputs only', function()
-  for _, product in ipairs({'gear', 'firearm-magazine', 'automation-science-pack'}) do
+test('Craft supports outputs of any registered item prototype type', function()
+  for _, product in ipairs({'gear', 'firearm-magazine', 'automation-science-pack', 'piercing-rounds-magazine', 'repair-pack'}) do
     recipe(product, 2)
     local a = ok('craft', {recipe = 'test', count = 2})
     advance(12)
     eq(ok('action', {id = a.id}).status, 'completed')
     eq(main.items[product], 4)
   end
-  for _, product in ipairs({'piercing-rounds-magazine', 'repair-pack'}) do
-    recipe(product)
-    denied('unsupported_recipe', 'craft', {recipe = 'test'})
-  end
+  recipe('unknown-item')
+  denied('unsupported_recipe', 'craft', {recipe = 'test'})
 end)
 
-local function transfer_target(kind, slot, item, direction)
-  local e = entity('target', kind)
-  local other = inventory({[item] = 5})
-  e.get_inventory = function(id) eq(id, slot); return other end
-  main.items[item] = 5
-  return {entity = 'target', position = e.position, inventory = kind == 'ammo-turret' and 'ammo' or 'input',
-    direction = direction or 'give', item = item, count = 2}, other
+-- Slot-faithful fake for the native transfer API. Metadata travels with stacks;
+-- the production implementation must never read, serialize or recreate it.
+local function native_inventory(stacks, size)
+  local inv = {}
+  for i = 1, size or 4 do
+    local slot = stacks[i] or {count = 0}
+    slot.quality = slot.quality or {name = 'normal'}
+    slot.valid_for_read = (slot.count or 0) > 0
+    slot.transfer_stack = function(source, amount)
+      if inv.full or (slot.filter and slot.filter ~= source.name) then return false end
+      if slot.valid_for_read and (slot.name ~= source.name or slot.metadata ~= source.metadata
+        or slot.quality.name ~= source.quality.name) then return false end
+      local n = math.min(amount, source.count, (inv.capacity or 1000) - (slot.count or 0))
+      if n <= 0 then return false end
+      slot.name, slot.quality, slot.metadata = source.name, source.quality, source.metadata
+      slot.count, slot.valid_for_read = (slot.count or 0) + n, true
+      source.count = source.count - n
+      source.valid_for_read = source.count > 0
+      return n == amount
+    end
+    inv[i] = slot
+  end
+  inv.get_item_count = function(spec)
+    local n = 0
+    for _, slot in ipairs(inv) do
+      if slot.valid_for_read and slot.name == spec.name and slot.quality.name == spec.quality then
+        n = n + slot.count
+      end
+    end
+    return n
+  end
+  inv.supports_bar = function() return inv.bar ~= nil end
+  inv.get_bar = function() return inv.bar end
+  return inv
 end
 
-test('Transfer routes assembler/lab input and turret ammo with full normal sources', function()
-  for _, row in ipairs({{'assembling-machine', defines.inventory.crafter_input, 'iron-plate'},
-    {'lab', defines.inventory.lab_input, 'automation-science-pack'},
-    {'ammo-turret', defines.inventory.turret_ammo, 'firearm-magazine'}}) do
+local function transfer_target(kind, slot, item, metadata)
+  local e = entity('target', kind)
+  main = native_inventory({{name = item, count = 5, metadata = metadata}})
+  c.get_main_inventory = function() return main end
+  local other = native_inventory({})
+  e.get_inventory = function(id) eq(id, slot); return other end
+  return {entity = 'target', position = e.position,
+    inventory = kind == 'ammo-turret' and 'ammo' or 'input',
+    direction = 'give', item = item, count = 2}, other
+end
+
+test('Transfer supports every prototype type without reconstructing its metadata', function()
+  for _, kind in ipairs({'item', 'ammo', 'tool', 'repair-tool', 'armor', 'gun',
+    'capsule', 'module', 'blueprint', 'blueprint-book', 'item-with-tags',
+    'item-with-entity-data', 'item-with-inventory', 'rail-planner',
+    'deconstruction-item', 'upgrade-item', 'selection-tool'}) do
     world = {}
-    local args, dest = transfer_target(table.unpack(row))
-    main[1] = {valid_for_read = true, name = row[3], quality = {name = 'normal'}, is_ammo = true, is_tool = true, ammo = 10, durability = 1}
-    ok('transfer', args)
-    eq(main.items[row[3]], 3); eq(dest.items[row[3]], 7)
+    prototypes.item.generic = {type = kind}
+    local metadata = {ammo = 3, durability = .4, health = .5, spoil_tick = 1234,
+      tags = {custom = 'preserve'}, blueprint = {}, equipment = {}}
+    local a, dest = transfer_target('assembling-machine', defines.inventory.crafter_input, 'generic', metadata)
+    eq(ok('transfer', a).count, 2)
+    eq(main[1].count, 3); eq(dest[1].count, 2); eq(dest[1].metadata, metadata)
+    a.direction = 'take'
+    eq(ok('transfer', a).count, 2)
+    eq(main[1].count, 5); eq(dest[1].count, 0); eq(main[1].metadata, metadata)
   end
 end)
 
-test('Transfer accepts pristine 2.1 simple consumables without querying absent metadata', function()
-  for _, row in ipairs({{'lab', defines.inventory.lab_input, 'automation-science-pack'}, {'ammo-turret', defines.inventory.turret_ammo, 'firearm-magazine'}}) do
-    world = {}
-    local args, dest = transfer_target(table.unpack(row))
-    main[1] = setmetatable({valid_for_read=true,name=row[3],quality={name='normal'},is_ammo=false,is_tool=false},
-      {__index=function(_,k) if k=='ammo' or k=='durability' then error('not a metadata item') end end})
-    ok('transfer',args); eq(dest.items[row[3]],7)
-  end
-end)
-
-test('Transfer rejects partial normal ammo/science and taking from used turret/lab', function()
+test('Transfer can recover partially consumed turret ammo and lab science', function()
   for _, row in ipairs({{'ammo-turret', defines.inventory.turret_ammo, 'firearm-magazine'},
     {'lab', defines.inventory.lab_input, 'automation-science-pack'}}) do
     world = {}
-    local args, dest = transfer_target(table.unpack(row))
-    main[1] = {valid_for_read = true, name = row[3], quality = {name = 'normal'}, is_ammo = true, is_tool = true, ammo = 9, durability = 0.5}
-    denied('partial_item', 'transfer', args)
-    eq(main.items[row[3]], 5); eq(dest.items[row[3]], 5)
-    main[1].quality.name = 'rare' -- unrelated quality metadata must not contaminate normal source validation
-    ok('transfer', args)
-    args.direction = 'take'
-    denied('partial_item', 'transfer', args)
-    eq(main.items[row[3]], 3); eq(dest.items[row[3]], 7)
+    local a, dest = transfer_target(table.unpack(row))
+    eq(ok('transfer', a).count, 2)
+    a.direction = 'take'
+    eq(ok('transfer', a).count, 2); eq(main[1].count, 5)
   end
 end)
 
-test('Transfer never substitutes rare stacks or unsupported consumables for normal items', function()
-  local args, dest = transfer_target('lab', defines.inventory.lab_input, 'automation-science-pack')
-  main.items['automation-science-pack'] = 0
-  main[1] = {valid_for_read = true, name = 'automation-science-pack', quality = {name = 'rare'}, durability = 1}
-  denied('no_item', 'transfer', args)
-  eq(dest.items['automation-science-pack'], 5)
-  args.item = 'piercing-rounds-magazine'
-  denied('invalid_argument', 'transfer', args)
+test('Transfer preserves distinct stacks and skips other qualities', function()
+  local a, dest = transfer_target('lab', defines.inventory.lab_input, 'automation-science-pack')
+  main[1].quality.name = 'rare'
+  denied('no_item', 'transfer', a); eq(dest[1].count, 0)
+  main[2].name, main[2].count, main[2].valid_for_read = a.item, 1, true
+  main[3].name, main[3].count, main[3].valid_for_read = a.item, 2, true
+  main[2].metadata, main[3].metadata = {durability = .1}, {durability = .9}
+  eq(ok('transfer', a).count, 2)
+  eq(main[1].count, 5); eq(main[3].count, 1)
+  eq(dest[1].metadata, main[2].metadata); eq(dest[2].metadata, main[3].metadata)
+  a.item = 'unknown'
+  denied('invalid_argument', 'transfer', a)
+end)
+
+test('Transfer respects bars, filters, slot budgets and reports partial capacity', function()
+  local a, dest = transfer_target('lab', defines.inventory.lab_input, 'automation-science-pack')
+  a.count = 6
+  denied('no_item', 'transfer', a); eq(main[1].count, 5); eq(dest[1].count, 0)
+  a.count = 2
+  dest.bar = 1
+  denied('inventory_full', 'transfer', a); eq(main[1].count, 5)
+  dest.bar = 2; dest[1].filter = 'other'
+  denied('inventory_full', 'transfer', a); eq(main[1].count, 5)
+  dest[1].filter = nil; dest.capacity = 1
+  eq(ok('transfer', a).count, 1); eq(main[1].count, 4)
+  dest.bar = nil
+  for i = 5, 20000 do dest[i] = dest[1] end
+  denied('unsupported_inventory', 'transfer', a); eq(main[1].count, 4)
 end)
 
 test('ConnectPower checks friendly/reachable poles and normal wire reach/player origin', function()
@@ -388,6 +452,143 @@ test('MineObject bounded timeout, Stop, lost selection and lost reach', function
   advance(1); eq(ok('action', {id = a.id}).error.code, 'out_of_reach')
 end)
 
+test('MineObject accepts later-tier, differently named and modded placement prototypes', function()
+  for _, name in ipairs({'radar', 'assembling-machine-3', 'steel-chest', 'fast-transport-belt',
+    'modded-refinery', 'car', 'straight-rail'}) do
+    world = {}
+    local e = entity(name, name == 'car' and 'car' or 'assembling-machine')
+    e.prototype.items_to_place_this = {{name = 'different-building-item', count = 2}}
+    c.update_selected_entity = function() c.selected = e end
+    c.insert = function() error('mining must not grant items') end
+    local a = ok('mine_object', {name = name, position = e.position})
+    advance(1); assert(c.mining_state.mining); eq(c.selected, e)
+    e.valid = false; advance(1)
+    eq(ok('action', {id = a.id}).count, 1)
+    eq(ok('action', {id = a.id}).status, 'completed')
+  end
+end)
+
+test('MineObject excludes actors, resources, ghosts, corpses and nonplaceable objects', function()
+  for _, kind in ipairs({'character', 'unit', 'resource', 'entity-ghost', 'tile-ghost', 'character-corpse', 'corpse'}) do
+    world = {}
+    local e = entity('unsafe', kind)
+    e.prototype.items_to_place_this = {{name = 'modded-item', count = 1}}
+    denied('invalid_target', 'mine_object', {name = e.name, position = e.position})
+  end
+  world = {}
+  local e = entity('unplaceable', 'simple-entity')
+  denied('invalid_target', 'mine_object', {name = e.name, position = e.position})
+  e.prototype.items_to_place_this = {}
+  denied('invalid_target', 'mine_object', {name = e.name, position = e.position})
+  e.prototype.items_to_place_this = {{name = 'valid-item', count = 1}}
+  e.unreachable = true
+  denied('out_of_reach', 'mine_object', {name = e.name, position = e.position})
+  eq(storage.bot.active, nil)
+end)
+
+test('MineObject rechecks ownership, minability and native reach during mining', function()
+  for _, change in ipairs({'force', 'minable', 'unreachable'}) do
+    world = {}
+    local e = entity('modded-machine', 'assembling-machine')
+    e.prototype.items_to_place_this = {{name = 'modded-machine', count = 1}}
+    c.update_selected_entity = function() c.selected = e end
+    local a = ok('mine_object', {name = e.name, position = e.position})
+    advance(1)
+    if change == 'force' then e.force = {name = 'enemy'}
+    elseif change == 'minable' then e.minable = false
+    else e.unreachable = true end
+    advance(1)
+    local done = ok('action', {id = a.id})
+    eq(done.status, 'failed'); eq(done.count, 0)
+    eq(done.error.code, change == 'unreachable' and 'out_of_reach' or 'invalid_target')
+    eq(c.mining_state.mining, false); eq(c.selected, nil)
+  end
+end)
+
+local function rotating_entity(name, step)
+  local e = entity(name, 'assembling-machine')
+  e.prototype.items_to_place_this = {{name = 'different-item', count = 1}}
+  prototypes.entity[name] = e.prototype
+  e.supports_direction, e.rotatable, e.calls = true, true, 0
+  e.rotate = function(spec)
+    e.calls = e.calls + 1
+    if e.block_at == e.calls then return false end
+    if not e.stuck then e.direction = (e.direction + (spec.reverse and -step or step)) % 16 end
+    return true
+  end
+  return e, {name = name, position = e.position, direction = 'west'}
+end
+
+test('Rotate uses bounded native rotation for any item-placeable prototype', function()
+  for _, name in ipairs({'assembling-machine-3', 'fast-transport-belt', 'splitter', 'modded-machine'}) do
+    world = {}
+    local e, a = rotating_entity(name, 4)
+    local summary = ok('rotate', a)
+    eq(e.calls, 1); eq(e.direction, defines.direction.west)
+    eq(summary.direction, defines.direction.west); assert(summary.rotatable)
+    a.direction = 'east'; ok('rotate', a)
+    eq(e.calls, 3); eq(e.direction, defines.direction.east)
+    ok('rotate', a); eq(e.calls, 3) -- already oriented: no native side effects
+  end
+end)
+
+-- Headless 2.1.24 probe: a placed splitter reverses on its existing axis.
+test('Rotate respects the native splitter two-heading cycle', function()
+  local e, a = rotating_entity('splitter', 8)
+  a.direction = 'south'; ok('rotate', a)
+  eq(e.direction, defines.direction.south); eq(e.calls, 1)
+  ok('rotate', a); eq(e.calls, 1)
+  a.direction = 'east'; denied('rotation_incomplete', 'rotate', a)
+  eq(e.direction, defines.direction.south); eq(e.calls, 3)
+end)
+
+test('Rotate handles fine native direction steps without directly assigning headings', function()
+  local e, a = rotating_entity('modded-16-way', 1)
+  a.direction = 'east'; ok('rotate', a)
+  eq(e.calls, 4); eq(e.direction, defines.direction.east)
+end)
+
+test('Rotate rejects forbidden entities, reach and headings before any native change', function()
+  local e, a = rotating_entity('modded-machine', 4)
+  e.force = {name = 'enemy'}; denied('invalid_target', 'rotate', a)
+  e.force = c.force; e.unreachable = true; denied('out_of_reach', 'rotate', a)
+  e.unreachable = false; a.direction = 'northeast'; denied('invalid_argument', 'rotate', a)
+  a.direction = 'west'
+  e.rotatable = false; denied('unsupported_item', 'rotate', a)
+  e.rotatable = true; e.supports_direction = false; denied('unsupported_item', 'rotate', a)
+  e.supports_direction = true; e.prototype.items_to_place_this = nil
+  denied('unsupported_item', 'rotate', a)
+  e.prototype.items_to_place_this = {{name = 'modded-item', count = 1}}
+  e.type = 'character'; denied('unsupported_item', 'rotate', a)
+  eq(e.calls, 0)
+  e.type = 'assembling-machine'; a.name = 'absent'
+  denied('invalid_target', 'rotate', a); eq(e.calls, 0)
+end)
+
+test('Rotate never bypasses native blocks or silently succeeds after partial rotation', function()
+  local e, a = rotating_entity('modded-machine', 4)
+  a.direction = 'south'; e.block_at = 2
+  denied('rotation_incomplete', 'rotate', a)
+  eq(e.calls, 2); eq(e.direction, defines.direction.east)
+  local observed = ok('inspect_entity', {name = e.name, position = e.position})
+  eq(observed.direction, defines.direction.east)
+  e.calls, e.direction, e.block_at, e.stuck = 0, 0, nil, true
+  denied('rotation_incomplete', 'rotate', a); eq(e.calls, 1); eq(e.direction, 0)
+  e.stuck = false; e.rotate = function() e.calls = e.calls + 1; e.direction = (e.direction + 8) % 16; return true end
+  e.calls = 0; a.direction = 'east'
+  denied('rotation_incomplete', 'rotate', a); eq(e.calls, 2); eq(e.direction, 0)
+  e.calls = 0; e.block_at = 1; e.rotate = function() e.calls = e.calls + 1; return false end
+  denied('rotation_incomplete', 'rotate', a); eq(e.calls, 1); eq(e.direction, 0)
+end)
+
+test('mining and rotation reject an actor with an active action', function()
+  local e, a = rotating_entity('modded-machine', 4)
+  ok('walk_to', {position = {x = 2, y = 2}, timeout_ticks = 10})
+  denied('busy', 'rotate', a)
+  denied('busy', 'mine_object', {name = e.name, position = e.position})
+  eq(e.calls, 0)
+end)
+
 test('HandCraft validates direct ingredients, queue and timeout before engine submission', function()
   recipe('gear')
   main.items['iron-plate'] = 1
@@ -409,9 +610,15 @@ test('HandCraft rejects locked, fluid, probabilistic and unsupported recipes wit
   denied('not_craftable', 'hand_craft', {recipe = 'test'})
   r.ingredients[1].type = 'item'; r.products[1].probability = 0.5
   denied('unsupported_recipe', 'hand_craft', {recipe = 'test'})
-  r.products[1].probability = 1; r.products[1].name = 'repair-pack'
+  r.products[1].probability = 1; r.products[1].name = 'unknown-item'
   denied('unsupported_recipe', 'hand_craft', {recipe = 'test'})
   eq(#begin_calls, 0); eq(storage.bot.active, nil)
+end)
+
+test('HandCraft accepts non-starter item prototype outputs', function()
+  recipe('repair-pack')
+  local a = ok('hand_craft', {recipe = 'test', count = 1})
+  eq(a.status, 'running'); eq(#begin_calls, 1)
 end)
 
 test('HandCraft submits once to real engine queue and records observed output counts', function()
@@ -480,27 +687,24 @@ test('HandCraft cancellation counts completed output, never unfinished batches',
   eq(c.force.stats.produced.gear,2); eq(c.force.stats.consumed['iron-plate'],2)
   eq(cancelled[1].count,1)
 end)
-test('count-only placement and transfer cannot refresh damaged building items', function()
+test('count-only placement cannot refresh damaged building items', function()
   build('iron-chest',1,1)
   main[1]={valid_for_read=true,name='iron-chest',quality={name='normal'},health=.5}
   denied('unsupported_stack','build',{item='iron-chest',position={x=.5,y=.5}})
   eq(main.items['iron-chest'],10);eq(#created,0)
-  world={}
-  local a,dest=transfer_target('assembling-machine',defines.inventory.crafter_input,'iron-plate')
-  main[1]={valid_for_read=true,name='iron-plate',quality={name='normal'},health=.5}
-  denied('unsupported_stack','transfer',a);eq(dest.items['iron-plate'],5)
 end)
 
 test('NPC corpse recovery transfers real inventory and rejects player-owned corpses', function()
   game.get_player=function(i) if i==1 then return {index=1} end end
   local corpse=entity('character-corpse','character-corpse',{name='neutral'})
   corpse.character_corpse_player_index=0
-  local recovered=inventory({['iron-plate']=1135})
+  local recovered=native_inventory({{name='iron-plate',count=1135}})
+  main=native_inventory({})
+  c.get_main_inventory=function() return main end
   corpse.get_inventory=function(id) eq(id,defines.inventory.character_corpse);return recovered end
-  main.items['iron-plate']=0
   local a={entity='character-corpse',position=corpse.position,inventory='main',direction='take',item='iron-plate',count=1000}
-  ok('transfer',a);eq(main.items['iron-plate'],1000);eq(recovered.items['iron-plate'],135)
-  a.count=135;ok('transfer',a);eq(main.items['iron-plate'],1135);eq(recovered.items['iron-plate'],0)
+  ok('transfer',a);eq(main[1].count,1000);eq(recovered[1].count,135)
+  a.count=135;ok('transfer',a);eq(main[1].count+main[2].count,1135);eq(recovered[1].count,0)
   corpse.character_corpse_player_index=1
   denied('invalid_target','transfer',a)
 end)

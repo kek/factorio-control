@@ -6,21 +6,22 @@ local directions = {
   south = defines.direction.south, southwest = defines.direction.southwest,
   west = defines.direction.west, northwest = defines.direction.northwest
 }
-local buildable = {
-  ["burner-mining-drill"] = true, ["stone-furnace"] = true,
-  ["wooden-chest"] = true, ["iron-chest"] = true,
-  ["transport-belt"] = true, ["burner-inserter"] = true,
-  ["splitter"] = true, ["underground-belt"] = true, ["assembling-machine-1"] = true,
-  ["inserter"] = true, ["long-handed-inserter"] = true,
-  ["small-electric-pole"] = true, ["electric-mining-drill"] = true,
-  ["boiler"] = true, ["steam-engine"] = true, ["offshore-pump"] = true,
-  ["pipe"] = true, ["pipe-to-ground"] = true, ["lab"] = true,
-  ["gun-turret"] = true, ["stone-wall"] = true, ["small-lamp"] = true
-}
-local consumables = {["firearm-magazine"] = "ammo", ["automation-science-pack"] = "tool"}
+-- Prototype capability, not a list of base-game names. Characters, resources,
+-- ghosts and corpses do not have a real item placement recipe.
+local function placed_infrastructure(e)
+  if e.type == "character" or e.type == "unit" or e.type == "resource" or
+      e.type == "entity-ghost" or e.type == "tile-ghost" or
+      e.type == "character-corpse" or e.type == "corpse" then return false end
+  local items = e.prototype.items_to_place_this
+  return items ~= nil and items[1] ~= nil
+end
+local function mineable_object(c, e)
+  return e.valid and e.minable and (
+    (e.force.name == "neutral" and (e.type == "tree" or e.type == "simple-entity")) or
+    (e.force == c.force and placed_infrastructure(e)))
+end
 local function supported_product(name)
-  local p = prototypes.item[name]
-  return p and (p.type == "item" or consumables[name] == p.type)
+  return prototypes.item[name] ~= nil
 end
 local status_names = {}
 for name, value in pairs(defines.entity_status) do status_names[value] = name end
@@ -167,7 +168,9 @@ local function npc_corpse(e)
   return e.type == "character-corpse" and not game.get_player(e.character_corpse_player_index)
 end
 local function entity_summary(e)
-  local out = {name = e.name, type = e.type, position = e.position, unit_number = e.unit_number}
+  local out = {name = e.name, type = e.type, position = e.position, unit_number = e.unit_number,
+    direction = e.direction, supports_direction = e.supports_direction,
+    rotatable = e.rotatable, minable = e.minable}
   if e.type == "resource" then out.amount = e.amount end
   if e.type == "inserter" then
     out.pickup_position = e.pickup_position
@@ -321,10 +324,9 @@ function methods.mine_object(args)
   check(type(args.name) == "string", "invalid_argument", "Entity name is required")
   check(distance(c.position, p) <= c.resource_reach_distance, "out_of_reach", "Mining target is out of reach")
   local e = c.surface.find_entity(args.name, p)
-  check(e and e.valid and e.minable and (
-      (e.force.name == "neutral" and (e.type == "tree" or e.type == "simple-entity")) or
-      (e.force == c.force and buildable[e.name])),
-    "invalid_target", "Only minable neutral trees/rocks or friendly allowlisted infrastructure may be mined")
+  check(e and mineable_object(c, e),
+    "invalid_target", "Expected a minable neutral tree/rock or friendly item-placeable infrastructure")
+  check(c.can_reach_entity(e), "out_of_reach", "Mining target is out of reach")
   local a = start("mine-object", args)
   a.position, a.target, a.count = p, e, 0
   return public_action(a)
@@ -374,9 +376,12 @@ function methods.build(args)
   idle()
   local c = character()
   local item = args.item
-  check(type(item) == "string" and buildable[item], "unsupported_item", "Item is outside the bounded starter infrastructure allowlist")
+  check(type(item) == "string", "invalid_argument", "Item name is required")
   local proto = prototypes.item[item]
   check(proto and proto.place_result, "unsupported_item", "Item has no placeable entity")
+  -- Count-backed placement cannot restore vehicle inventories/equipment or tags.
+  -- Such items can be transferred intact, but need a dedicated placement effect.
+  check(proto.type == "item", "unsupported_item", "Placement requires a plain entity-building item")
   local pos = position(args.position)
   local direction = args.direction or "north"
   check(direction == "north" or direction == "east" or direction == "south" or direction == "west",
@@ -384,7 +389,7 @@ function methods.build(args)
   local dir = directions[direction]
   check(distance(pos, c.position) <= c.build_distance, "out_of_reach", "Build position is out of reach")
   if args.end_type ~= nil then
-    check(item == "underground-belt" and (args.end_type == "input" or args.end_type == "output"),
+    check(proto.place_result.type == "underground-belt" and (args.end_type == "input" or args.end_type == "output"),
       "invalid_argument", "Underground end must be input or output")
   end
   local stack = {name = item, quality = "normal", count = 1}
@@ -402,7 +407,7 @@ function methods.build(args)
     direction = dir, quality = "normal", build_check_type = defines.build_check_type.manual}
   check(c.can_place_entity{name = spec.name, position = pos, direction = dir}
     and c.surface.can_place_entity(spec), "blocked", "Placement is blocked")
-  if item == "underground-belt" then spec.type = args.end_type or "input" end
+  if proto.place_result.type == "underground-belt" then spec.type = args.end_type or "input" end
   -- Creating before consumption avoids losing the item on failed placement.
   -- No other action interleaves within this call. Roll back if removal fails.
   local e = c.surface.create_entity(spec)
@@ -423,18 +428,35 @@ end
 function methods.rotate(args)
   idle()
   local c = character()
-  check(type(args.name) == "string" and buildable[args.name], "unsupported_item", "Unsupported entity")
+  check(type(args.name) == "string", "invalid_argument", "Entity name is required")
   local pos = position(args.position)
   local e = c.surface.find_entity(args.name, pos)
   check(e and e.valid and e.force == c.force, "invalid_target", "Expected a friendly entity")
-  check(e.type == "inserter" or e.type == "mining-drill" or e.type == "transport-belt",
-    "unsupported_item", "Only starter inserters, drills and belts can be rotated")
+  check(placed_infrastructure(e) and e.supports_direction and e.rotatable,
+    "unsupported_item", "Expected item-placeable infrastructure that supports native rotation")
   check(c.can_reach_entity(e), "out_of_reach", "Entity is out of reach")
   local name = args.direction
   check(name == "north" or name == "east" or name == "south" or name == "west",
     "invalid_argument", "Direction must be cardinal")
-  e.direction = directions[name]
-  return entity_summary(e)
+  local desired, original = directions[name], e.direction
+  if original == desired then return entity_summary(e) end
+  -- Native rotation enforces collisions, entity-specific rules and linked ends.
+  -- A multi-step absolute rotation can stop partway: report the actual heading,
+  -- never overwrite direction or automatically roll back/retry engine changes.
+  local reverse = (desired - original) % 16 > 8
+  local seen = {[original] = true}
+  for step = 1, 16 do
+    local rotated = e.rotate{reverse = reverse}
+    if rotated and e.direction == desired then return entity_summary(e) end
+    if not rotated or seen[e.direction] then
+      fail("rotation_incomplete", "Native rotation stopped; original=" .. original ..
+        ", current=" .. e.direction .. ", requested=" .. desired ..
+        ", attempts=" .. step .. "; inspect before continuing")
+    end
+    seen[e.direction] = true
+  end
+  fail("rotation_incomplete", "Native rotation exceeded 16 steps; current=" ..
+    e.direction .. ", requested=" .. desired .. "; inspect before continuing")
 end
 
 local function inventory(e, name)
@@ -465,39 +487,34 @@ function methods.transfer(args)
   local source, dest = c.get_main_inventory(), other
   if args.direction == "take" then source, dest = other, source end
   local item = args.item
-  check(type(item) == "string" and supported_product(item), "invalid_argument", "Only supported normal-quality items may be transferred")
-  if consumables[item] then
-    check(not (args.direction == "take" and (e.type == "lab" or e.type == "ammo-turret")),
-      "partial_item", "Taking used ammunition or science packs is not supported")
-    -- Count-only transfers must not refresh partially consumed stack metadata.
-    for i = 1, #source do
-      local s = source[i]
-      if s.valid_for_read and s.name == item and s.quality.name == "normal" then
-        -- In 2.1 a pristine full consumable can use simple item storage; the
-        -- metadata accessors throw unless the corresponding runtime flag is set.
-        local full
-        if consumables[item] == "ammo" then
-          full = not s.is_ammo or s.ammo == prototypes.item[item].magazine_size
-        else
-          full = not s.is_tool or s.durability == prototypes.item[item].get_durability("normal")
-        end
-        check(full, "partial_item", "Source contains a partially consumed item")
+  check(type(item) == "string" and supported_product(item), "invalid_argument", "A valid item prototype is required")
+  local count = integer(args.count, "count", 1, 1000)
+  check(source.get_item_count{name = item, quality = "normal"} >= count,
+    "no_item", "Not enough normal-quality items in source")
+  -- Native slot transfers preserve blueprints, equipment, tags, spoilage,
+  -- damage and partially consumed ammo/tools. Never reconstruct name/count stacks.
+  -- Respect the destination bar explicitly; slot writes respect native filters.
+  local limit = #dest
+  if dest.supports_bar() then limit = math.min(limit, dest.get_bar() - 1) end
+  check(#source <= 1024 and #source * limit <= 65536,
+    "unsupported_inventory", "Inventory transfer exceeds the bounded slot budget")
+  local moved = 0
+  for i = 1, #source do
+    local s = source[i]
+    if s.valid_for_read and s.name == item and s.quality.name == "normal" then
+      for j = 1, limit do
+        local before = s.count
+        dest[j].transfer_stack(s, math.min(count - moved, before))
+        moved = moved + before - (s.valid_for_read and s.count or 0)
+        if moved == count or not s.valid_for_read then break end
       end
     end
+    if moved == count then break end
   end
-  undamaged(source, item)
-  local count = integer(args.count, "count", 1, 1000)
-  local stack = {name = item, quality = "normal", count = count}
-  check(source.get_item_count(stack) >= count, "no_item", "Not enough items in source")
-  check(dest.get_insertable_count{name = item, quality = "normal"} >= count, "inventory_full", "Destination cannot fit requested items")
-  -- Starter items have no metadata. Normal-quality stacks only.
-  local inserted = dest.insert(stack)
-  if inserted ~= count then
-    dest.remove{name = item, quality = "normal", count = inserted}
-    fail("inventory_full", "Transfer could not be completed")
-  end
-  source.remove(stack)
-  return {item = item, count = count, direction = args.direction}
+  check(moved > 0, "inventory_full", "Destination cannot accept the requested item")
+  -- Capacity depends on stack metadata, not just prototype counts. A successful
+  -- receipt reports the actual quantity; callers must account for partial moves.
+  return {item = item, count = moved, direction = args.direction}
 end
 
 local function tick()
@@ -537,7 +554,12 @@ local function tick()
     elseif #(c.crafting_queue or {}) == 0 then finish("failed", "craft_incomplete", "Engine crafting ended before requested output was observed") end
   elseif a.kind == "mine-object" then
     if not a.target.valid then a.count = 1; finish("completed") return end
-    if distance(c.position, a.position) > c.resource_reach_distance then finish("failed", "out_of_reach", "Mining target moved out of reach") return end
+    if not mineable_object(c, a.target) then
+      finish("failed", "invalid_target", "Mining target is no longer minable or permitted") return
+    end
+    if distance(c.position, a.position) > c.resource_reach_distance or not c.can_reach_entity(a.target) then
+      finish("failed", "out_of_reach", "Mining target moved out of reach") return
+    end
     c.update_selected_entity(a.position)
     if c.selected ~= a.target then finish("failed", "target_lost", "Could not select mining target") return end
     c.mining_state = {mining = true, position = a.position}

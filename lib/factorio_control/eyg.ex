@@ -73,6 +73,10 @@ defmodule FactorioControl.Eyg do
                 x_milli: int,
                 y_milli: int,
                 amount: int,
+                direction: int,
+                supports_direction: scalar("boolean"),
+                rotatable: scalar("boolean"),
+                minable: scalar("boolean"),
                 status: text,
                 has_pickup: scalar("boolean"),
                 pickup_x_milli: int,
@@ -351,6 +355,10 @@ defmodule FactorioControl.Eyg do
            "x_milli" => milli(e["position"]["x"]),
            "y_milli" => milli(e["position"]["y"]),
            "amount" => e["amount"] || 0,
+           "direction" => e["direction"] || 0,
+           "supports_direction" => e["supports_direction"] == true,
+           "rotatable" => e["rotatable"] == true,
+           "minable" => e["minable"] == true,
            "status" => e["status_name"] || "not_applicable",
            "has_pickup" => not is_nil(e["pickup_position"]),
            "pickup_x_milli" => coordinate(e["pickup_position"], "x"),
@@ -561,7 +569,10 @@ defmodule FactorioControl.Eyg do
              "item" => item,
              "count" => count
            }) do
-      receipt(response, count)
+      case response["data"]["count"] do
+        moved when is_integer(moved) and moved >= 1 and moved <= count -> receipt(response, moved)
+        _ -> {:fatal, {:invalid_transfer_receipt, response}}
+      end
     else
       false -> {:error, "invalid inventory or transfer direction"}
       other -> other
