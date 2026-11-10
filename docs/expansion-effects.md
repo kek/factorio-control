@@ -88,7 +88,7 @@ craft then unlocked red science via the normal craft-item requirement. Cancellat
 cancels remaining owned batches at the queue head, preserving later foreign work.
 
 Crafting accepts a guaranteed output of any registered item type. Transfers
-move native stacks of all registered item types at normal quality, including
+move native stacks of all registered item types, including
 partially consumed ammo/tools, blueprints, tags and equipment. Metadata is not
 reconstructed or serialized. Destination bars and native slot restrictions apply;
 a successful receipt may report less than the requested quantity when capacity
@@ -97,6 +97,21 @@ runs out. Always check its actual count before dependent work.
 `Transfer` additionally supports assembler/lab `input` and turret `ammo`. Existing
 selectors retain their meaning. No count-only transfer refreshes a magazine,
 science pack or damaged building's metadata.
+
+`Transfer` retains its normal-quality argument shape. `TransferQuality` adds
+required `quality` (an exact registered name of 1–100 bytes), with otherwise
+identical position/entity/inventory/direction/item/count arguments and receipt.
+It selects only that quality, never falling back to normal or combining qualities.
+Inspect inventory quality names before planning a transfer; modded registered
+qualities are supported without a hard-coded tier list. Invalid/unknown qualities
+are rejected before moving items.
+
+`TransferQuality` needs its own effect grant and dedicated `transfer_quality` mod
+method. Old mods return `unknown_method` without moving items. The host requires
+the returned quality to match; a missing/mismatched acknowledgement is fatal and
+must be inspected, never retried automatically. Building/crafting/recipe-selection
+quality support is unchanged. The pending capability-profile design must apply
+the same transfer policies to both effects.
 
 ## Rotation
 

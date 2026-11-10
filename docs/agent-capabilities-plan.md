@@ -24,9 +24,9 @@ the world is observable, and success is measurable (for example, plates grow).
 - **Effect grants.** `mix factorio.eyg --effects A,B,...` selects effects before
   evaluation. A program that uses any other effect fails the type check and never
   runs, so nothing reaches the game.
-- **28 typed effects:** 12 read-only observations, 5 long-running actions
-  (`WalkTo`, `Mine`, `Craft`, `HandCraft`, `MineObject`), 9 immediate changes
-  (`Build`, `BuildUnderground`, `Rotate`, `Transfer`, `ConnectPower`, `SetRecipe`,
+- **29 typed effects:** 12 read-only observations, 5 long-running actions
+  (`WalkTo`, `Mine`, `Craft`, `HandCraft`, `MineObject`), 10 immediate changes
+  (`Build`, `BuildUnderground`, `Rotate`, `Transfer`, `TransferQuality`, `ConnectPower`, `SetRecipe`,
   `SetChestLimit`, `Research`, `SpawnBot`) and 2 controls (`Wait`, `Stop`).
 - **Per-run limits:** at most 100 effects, 300 s default and 600 s maximum wall
   time, a 12 KB final result.
@@ -67,9 +67,12 @@ Starting profiles:
 | Profile | Effects | Policies |
 | --- | --- | --- |
 | `observer` | All `Inspect*` effects | None needed |
-| `maintainer` | Observations, `WalkTo`, `Transfer`, `Wait`, `Stop` | `Transfer` may only give fuel or ammunition, or take from the bot's own supply chests |
-| `builder` | Observations, movement, `Craft`, `HandCraft`, `Build`, `BuildUnderground`, `ConnectPower`, `Rotate`, `SetRecipe`, `Transfer`, `Wait`, `Stop` | `Build` only inside allowed areas; `Rotate`/`SetRecipe` only on entities this bot built; no taking from existing machines |
+| `maintainer` | Observations, `WalkTo`, `Transfer`, `TransferQuality`, `Wait`, `Stop` | Both transfer effects may only give fuel or ammunition, or take from the bot's own supply chests |
+| `builder` | Observations, movement, `Craft`, `HandCraft`, `Build`, `BuildUnderground`, `ConnectPower`, `Rotate`, `SetRecipe`, `Transfer`, `TransferQuality`, `Wait`, `Stop` | `Build` only inside allowed areas; `Rotate`/`SetRecipe` only on entities this bot built; no taking from existing machines |
 | `full` | Everything | None |
+
+`TransferQuality` has an explicit quality selector and separate effect grant;
+all transfer policies below must cover both it and the normal-only `Transfer`.
 
 ### 2. Per-call policy layer
 

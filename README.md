@@ -287,14 +287,24 @@ above and their drop goes into the chest below, verified through connection insp
 
 `Transfer` accepts every registered item prototype type and moves native stacks,
 including blueprints/books, armor with equipment, tagged items, damaged items,
-spoilable items and partially consumed ammunition/tools. Selection remains
-normal-quality only; metadata is preserved but not exposed in inventory summaries.
+spoilable items and partially consumed ammunition/tools. Existing `Transfer`
+programs remain normal-quality only. `TransferQuality` has the same arguments
+plus required `quality: "rare"` (or any registered quality name) for exact-quality
+selection. It never substitutes or combines other qualities. Metadata is preserved
+but not exposed in inventory summaries.
 Destination filters, slot restrictions and inventory bars still apply. Insufficient
 source quantity is rejected before moving anything. If destination capacity runs
 out, a successful receipt reports the **actual moved count**, possibly less than
 requested. Check that count before dependent actions; never blindly repeat a
 partially completed transfer. Zero-capacity transfers fail without moving items.
 Transfers are bounded to 1,024 source slots and 65,536 source/destination slot pairs.
+
+Grant `TransferQuality` explicitly with `--effects TransferQuality`; granting
+`Transfer` alone does not authorize it. The new effect uses a dedicated
+`transfer_quality` mod method, so an older mod rejects it before moving anything.
+The host also requires the reply to confirm the selected quality. Quality names
+must be 1–100 UTF-8 bytes; unknown names are rejected by the mod. Building,
+crafting and recipe changes retain their existing normal-quality restrictions.
 
 The EYG files in `scenarios/iron-pipeline/` implement this save's starter pipeline:
 
