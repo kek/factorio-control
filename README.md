@@ -274,6 +274,14 @@ action. Characters, units, resources, ghosts and corpses are excluded. Resources
 use `Mine`; corpse inventory recovery uses `Transfer`. Mining preserves the
 normal engine recovery behavior rather than manufacturing replacement items.
 
+`SetRecipe({name,position,recipe})` supports any reachable friendly assembler
+prototype whose categories and ingredient capacity fit an unlocked item-only
+recipe. Higher tiers and dry fluid-capable variants are allowed. Recipe changes
+require empty item/module inventories and fluid stores, zero craft/productivity
+progress, and no recipe lock or fixed recipe; requesting the current recipe is a
+no-op. Nothing is automatically emptied. Changes select normal recipe quality;
+fluid recipes, furnace auto-selection and silo configuration remain unsupported.
+
 The output inserters in this layout use `north`: their pickup is from the furnace
 above and their drop goes into the chest below, verified through connection inspection.
 

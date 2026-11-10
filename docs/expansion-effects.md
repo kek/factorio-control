@@ -47,8 +47,19 @@ and preserve damage.
 |---|---|---|
 | `BuildUnderground` | `{position,direction,end_type}` | Explicit `input`/`output` endpoint, normal underground-belt item and placement rules. |
 | `ConnectPower` | `{from,to}` | Two reachable friendly small poles, normal copper wire reach, player wire origin; existing connection is a no-op. Never overrides wire reach. |
-| `SetRecipe` | `{name,position,recipe}` | Reachable friendly assembler-1, unlocked supported item recipe/category. Changing recipes requires empty input/output/trash/dump/module inventories, no active craft/productivity progress, no recipe lock and no fluid-capable variant. Same recipe is a no-op. |
+| `SetRecipe` | `{name,position,recipe}` | Any reachable friendly `assembling-machine` prototype, unlocked item-only recipe within its crafting categories and ingredient capacity. Changes require empty input/output/trash/dump/module inventories and all fluid stores, no active craft/productivity progress and no recipe lock/fixed recipe. Same recipe is a no-op. |
 | `SetChestLimit` | `{name,position,slots}` | Reachable friendly chest, inventory bar supported, 1–48 slots and within actual inventory size. Hides excess slots from automation without deleting contents. |
+
+`SetRecipe` uses the machine's native class, crafting categories and ingredient
+capacity, not a prototype-name allowlist. This covers later-tier and modded
+assemblers, including dry fluid-capable variants. A change scans every native
+fluid storage (at most 64), rejecting even fractional residue; no inventory or
+fluid is cleared automatically. At most 128 categories and 64 ingredients/products
+per list are accepted. Changes explicitly select normal recipe quality, while an
+already-selected recipe is left untouched, even if the machine is busy or locked.
+Furnace auto-selection, silo-specific state and fluid recipes remain unsupported.
+Native ejections or a failed read-back are errors: inspect the machine and trace
+before continuing, and never blindly retry a configuration change.
 
 The mod uses `create_entity`, not every player placement event/undo behavior.
 Check real pickup/drop targets, fluids, network connections and output growth.
