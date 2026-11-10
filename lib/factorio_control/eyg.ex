@@ -158,6 +158,19 @@ defmodule FactorioControl.Eyg do
           ),
           receipt
         ),
+      "TransferQuality" =>
+        contract(
+          record(
+            position: position,
+            entity: text,
+            inventory: text,
+            direction: text,
+            item: text,
+            quality: text,
+            count: int
+          ),
+          receipt
+        ),
       "Wait" => contract(record(ticks: int), receipt),
       "Stop" => contract(record([]), receipt)
     }
@@ -541,7 +554,7 @@ defmodule FactorioControl.Eyg do
   end
 
   def handle(
-        "Transfer",
+        effect,
         %{
           "position" => pos,
           "entity" => entity,
@@ -549,11 +562,13 @@ defmodule FactorioControl.Eyg do
           "direction" => direction,
           "item" => item,
           "count" => count
-        },
+        } = args,
         call,
         _
-      ) do
-    with {:ok, position} <- position(pos),
+      )
+      when effect in ["Transfer", "TransferQuality"] do
+    with {:ok, method, selection} <- transfer_selection(effect, args),
+         {:ok, position} <- position(pos),
          :ok <- count(count),
          :ok <- item(item),
          :ok <- item(entity),
@@ -561,17 +576,29 @@ defmodule FactorioControl.Eyg do
            inventory in ["fuel", "output", "input", "main", "ammo"] and
              direction in ["take", "give"],
          {:ok, response} <-
-           invoke(call, :transfer, %{
-             "position" => position,
-             "entity" => entity,
-             "inventory" => inventory,
-             "direction" => direction,
-             "item" => item,
-             "count" => count
-           }) do
-      case response["data"]["count"] do
-        moved when is_integer(moved) and moved >= 1 and moved <= count -> receipt(response, moved)
-        _ -> {:fatal, {:invalid_transfer_receipt, response}}
+           invoke(
+             call,
+             method,
+             Map.merge(
+               %{
+                 "position" => position,
+                 "entity" => entity,
+                 "inventory" => inventory,
+                 "direction" => direction,
+                 "item" => item,
+                 "count" => count
+               },
+               selection
+             )
+           ) do
+      case response["data"] do
+        %{"count" => moved} = data when is_integer(moved) and moved >= 1 and moved <= count ->
+          if effect == "TransferQuality" and data["quality"] != selection["quality"],
+            do: {:fatal, {:invalid_transfer_receipt, response}},
+            else: receipt(response, moved)
+
+        _ ->
+          {:fatal, {:invalid_transfer_receipt, response}}
       end
     else
       false -> {:error, "invalid inventory or transfer direction"}
@@ -667,6 +694,17 @@ defmodule FactorioControl.Eyg do
       "error_code" => error["code"] || "",
       "error_message" => error["message"] || ""
     }
+  end
+
+  defp transfer_selection("Transfer", args) do
+    if Map.has_key?(args, "quality"),
+      do: {:error, "Transfer is normal-quality only; use TransferQuality"},
+      else: {:ok, :transfer, %{}}
+  end
+
+  defp transfer_selection("TransferQuality", args) do
+    with :ok <- item(args["quality"]),
+         do: {:ok, :transfer_quality, %{"quality" => args["quality"]}}
   end
 
   defp position(%{"x2" => x, "y2" => y})

@@ -66,6 +66,7 @@ local function inventory(items, slots)
 end
 local c, main, world, surface, created, begin_calls, cancelled
 local function reset()
+  prototypes.quality = {normal = {}, uncommon = {}, rare = {}, epic = {}, legendary = {}, ['modded-quality'] = {}}
   prototypes.item = {
     gear = {type = 'item'}, ['iron-plate'] = {type = 'item'},
     ['firearm-magazine'] = {type = 'ammo', magazine_size = 10},
@@ -335,7 +336,8 @@ test('Transfer supports every prototype type without reconstructing its metadata
     local metadata = {ammo = 3, durability = .4, health = .5, spoil_tick = 1234,
       tags = {custom = 'preserve'}, blueprint = {}, equipment = {}}
     local a, dest = transfer_target('assembling-machine', defines.inventory.crafter_input, 'generic', metadata)
-    eq(ok('transfer', a).count, 2)
+    local receipt = ok('transfer', a)
+    eq(receipt.count, 2); eq(receipt.quality, nil)
     eq(main[1].count, 3); eq(dest[1].count, 2); eq(dest[1].metadata, metadata)
     a.direction = 'take'
     eq(ok('transfer', a).count, 2)
@@ -382,6 +384,75 @@ test('Transfer respects bars, filters, slot budgets and reports partial capacity
   dest.bar = nil
   for i = 5, 20000 do dest[i] = dest[1] end
   denied('unsupported_inventory', 'transfer', a); eq(main[1].count, 4)
+end)
+
+test('TransferQuality selects exact registered qualities and preserves stack metadata', function()
+  for _, quality in ipairs{'normal', 'uncommon', 'rare', 'epic', 'legendary', 'modded-quality'} do
+    world = {}
+    local metadata = {durability = .2, tags = {purpose = 'preserve'}}
+    local a, dest = transfer_target('assembling-machine', defines.inventory.crafter_input, 'repair-pack', metadata)
+    main[1].quality = {name = quality}
+    main[2].name, main[2].count, main[2].valid_for_read = a.item, 7, true
+    main[2].quality = {name = quality == 'normal' and 'rare' or 'normal'}
+    a.quality = quality
+    local r = ok('transfer_quality', a)
+    eq(r.quality, quality); eq(r.count, 2)
+    eq(main[1].count, 3); eq(main[2].count, 7)
+    eq(dest[1].quality.name, quality); eq(dest[1].metadata, metadata)
+    a.direction = 'take'; r = ok('transfer_quality', a)
+    eq(r.quality, quality); eq(r.count, 2)
+    eq(main[1].count, 5); eq(main[2].count, 7); eq(dest[1].count, 0)
+  end
+end)
+
+test('TransferQuality never substitutes or combines different qualities', function()
+  local a, dest = transfer_target('assembling-machine', defines.inventory.crafter_input, 'iron-plate')
+  a.quality = 'rare'
+  denied('no_item', 'transfer_quality', a)
+  eq(main[1].count, 5); eq(dest[1].count, 0)
+  main[2].name, main[2].count, main[2].valid_for_read = a.item, 1, true
+  main[2].quality = {name = 'rare'}
+  denied('no_item', 'transfer_quality', a)
+  eq(main[1].count, 5); eq(main[2].count, 1); eq(dest[1].count, 0)
+  main[3].name, main[3].count, main[3].valid_for_read = a.item, 1, true
+  main[3].quality = {name = 'rare'}
+  eq(ok('transfer_quality', a).count, 2)
+  eq(main[1].count, 5); eq(dest[1].quality.name, 'rare')
+end)
+
+test('TransferQuality rejects absent or invalid quality names without mutation', function()
+  local a, dest = transfer_target('assembling-machine', defines.inventory.crafter_input, 'iron-plate')
+  denied('invalid_quality', 'transfer_quality', a)
+  for _, quality in ipairs{false, 1, {}, '', string.rep('q', 101), 'unknown-quality'} do
+    a.quality = quality
+    denied('invalid_quality', 'transfer_quality', a)
+    eq(main[1].count, 5); eq(dest[1].count, 0)
+  end
+  a.quality = 'rare'
+  denied('invalid_argument', 'transfer', a) -- legacy method must not ignore this field
+  eq(main[1].count, 5); eq(dest[1].count, 0)
+end)
+
+test('TransferQuality preserves quality across partial-capacity moves and native restrictions', function()
+  local a, dest = transfer_target('assembling-machine', defines.inventory.crafter_input, 'iron-plate')
+  main[1].quality = {name = 'rare'}; a.quality = 'rare'
+  dest.bar = 1
+  denied('inventory_full', 'transfer_quality', a); eq(main[1].count, 5)
+  dest.bar = 2; dest[1].filter = 'other'
+  denied('inventory_full', 'transfer_quality', a); eq(main[1].count, 5)
+  dest[1].filter = nil; dest.capacity = 1
+  local r = ok('transfer_quality', a)
+  eq(r.quality, 'rare'); eq(r.count, 1); eq(main[1].count, 4)
+  eq(dest[1].quality.name, 'rare')
+  denied('inventory_full', 'transfer_quality', a); eq(main[1].count, 4)
+  local target = world[1]
+  target.force = {name = 'enemy'}
+  denied('invalid_target', 'transfer_quality', a); eq(main[1].count, 4)
+  target.force = c.force; target.unreachable = true
+  denied('out_of_reach', 'transfer_quality', a); eq(main[1].count, 4)
+  target.unreachable = false
+  ok('walk_to', {position = {x = 2, y = 2}, timeout_ticks = 10})
+  denied('busy', 'transfer_quality', a); eq(main[1].count, 4)
 end)
 
 test('ConnectPower checks friendly/reachable poles and normal wire reach/player origin', function()

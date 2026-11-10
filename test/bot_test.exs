@@ -45,6 +45,40 @@ defmodule FactorioControl.BotTest do
     end
   end
 
+  test "TransferQuality routes its dedicated method and exact quality to the selected bot" do
+    owner = self()
+
+    client =
+      client(fn request ->
+        send(owner, {:request, request})
+        ok(%{"count" => 1, "quality" => "rare"})
+      end)
+
+    source = """
+    match perform TransferQuality({position: {x2: 1, y2: 1}, entity: "iron-chest",
+      inventory: "main", direction: "give", item: "iron-plate", quality: "rare", count: 1}) {
+      Ok(r) -> {r.count}
+      Error(_) -> {0}
+    }
+    """
+
+    assert {:ok, %{"value" => 1}, _} =
+             Eyg.run(client, source, bot: "quality-bot", effects: ["TransferQuality"])
+
+    assert_received {:request,
+                     %{
+                       "bot" => "quality-bot",
+                       "method" => "transfer_quality",
+                       "args" => %{
+                         "quality" => "rare",
+                         "count" => 1,
+                         "position" => %{"x" => 0.5, "y" => 0.5}
+                       }
+                     }}
+
+    refute_received {:request, _}
+  end
+
   test "selectors validate the exact ASCII grammar and length before transport or evaluation" do
     for bot <- ["a", "default", "bot_2-x", String.duplicate("a", 32)] do
       assert Bot.validate_name!(bot) == bot

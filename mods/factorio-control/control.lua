@@ -472,8 +472,10 @@ local function inventory(e, name)
   fail("invalid_inventory", "Invalid inventory for entity type")
 end
 
-function methods.transfer(args)
+local function transfer(args, quality)
   idle()
+  check(type(quality) == "string" and #quality >= 1 and #quality <= 100 and prototypes.quality[quality],
+    "invalid_quality", "A registered quality name is required")
   local c = character()
   local pos = position(args.position)
   check(args.direction == "take" or args.direction == "give", "invalid_argument", "direction must be take or give")
@@ -489,8 +491,8 @@ function methods.transfer(args)
   local item = args.item
   check(type(item) == "string" and supported_product(item), "invalid_argument", "A valid item prototype is required")
   local count = integer(args.count, "count", 1, 1000)
-  check(source.get_item_count{name = item, quality = "normal"} >= count,
-    "no_item", "Not enough normal-quality items in source")
+  check(source.get_item_count{name = item, quality = quality} >= count,
+    "no_item", "Not enough " .. quality .. "-quality items in source")
   -- Native slot transfers preserve blueprints, equipment, tags, spoilage,
   -- damage and partially consumed ammo/tools. Never reconstruct name/count stacks.
   -- Respect the destination bar explicitly; slot writes respect native filters.
@@ -501,7 +503,7 @@ function methods.transfer(args)
   local moved = 0
   for i = 1, #source do
     local s = source[i]
-    if s.valid_for_read and s.name == item and s.quality.name == "normal" then
+    if s.valid_for_read and s.name == item and s.quality.name == quality then
       for j = 1, limit do
         local before = s.count
         dest[j].transfer_stack(s, math.min(count - moved, before))
@@ -514,7 +516,20 @@ function methods.transfer(args)
   check(moved > 0, "inventory_full", "Destination cannot accept the requested item")
   -- Capacity depends on stack metadata, not just prototype counts. A successful
   -- receipt reports the actual quantity; callers must account for partial moves.
-  return {item = item, count = moved, direction = args.direction}
+  return {item = item, quality = quality, count = moved, direction = args.direction}
+end
+
+function methods.transfer(args)
+  check(args.quality == nil, "invalid_argument", "Use transfer_quality for explicit quality selection")
+  local result = transfer(args, "normal")
+  result.quality = nil -- Preserve the legacy wire receipt as well as its selection.
+  return result
+end
+
+-- A distinct method makes old mods fail closed with unknown_method instead of
+-- ignoring a quality argument and transferring normal stacks by mistake.
+function methods.transfer_quality(args)
+  return transfer(args, args.quality)
 end
 
 local function tick()
