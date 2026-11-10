@@ -38,15 +38,18 @@ local function reset()
   e = {valid = true, name = 'assembling-machine-1', type = 'assembling-machine',
     force = force, position = {x=1,y=0}, health = 200, status = 1, energy = 42,
     quality = 'normal', recipe_locked = false, crafting_progress = 0, bonus_progress = 0,
+    fluids_count = 0, get_fluid = function() error('no fluid slots expected') end,
     prototype = {get_max_health = function(q) assert(q == 'normal'); return 300 end,
-      crafting_categories = {crafting = true}, fluidbox_prototypes = {}},
+      crafting_categories = {crafting = true}, ingredient_count = 6, fluidbox_prototypes = {} },
     get_inventory = function(i) return inventories[i] end,
     get_fuel_inventory = function() return inventories.fuel end,
     get_output_inventory = function() return inventories[2] end,
     get_module_inventory = function() return inventories.modules end,
     is_crafting = function() return false end,
     get_recipe = function() return e.recipe end,
-    set_recipe = function(n) writes = writes + 1; e.recipe = force.recipes[n]; return {} end}
+    set_recipe = function(n, quality)
+      assert(quality == 'normal'); writes = writes + 1; e.recipe = force.recipes[n]; return {}
+    end}
   force.recipes.gear = {name = 'gear', enabled = true, has_category = function(cat) return cat == 'crafting' end,
     ingredients = {{name = 'iron-plate', type = 'item', amount = 2}}, products = {{name = 'gear', type = 'item', amount = 1}}}
 end
@@ -121,11 +124,109 @@ e.is_crafting = function() return false end
 e.bonus_progress = .2; fails('machine_not_empty', set); e.bonus_progress = 0
 inventories.modules = inv{{name='speed-module',count=1}}
 fails('machine_not_empty', set); inventories.modules = nil
-e.prototype.fluidbox_prototypes = {{}}; fails('unsupported_machine', set); e.prototype.fluidbox_prototypes = {}
+e.prototype.fluidbox_prototypes = {{}}; e.fluids_count = 1
+e.get_fluid = function() return {name='water',amount=0.001} end
+fails('machine_not_empty', set); e.fluids_count = 0; e.prototype.fluidbox_prototypes = {}
 assert(writes == 0)
 assert(set().recipe == 'gear' and writes == 1)
 inventories[1] = inv{{name='iron-plate',count=2}}
 assert(set().recipe == 'gear' and writes == 1) -- idempotent while nonempty
+
+-- SetRecipe is capability-based, not a list of base-game prototype names.
+for _, n in ipairs{'assembling-machine-1','assembling-machine-2','assembling-machine-3',
+  'foundry','electromagnetic-plant','modded-assembler'} do
+  reset(); e.name = n
+  e.prototype.fluidbox_prototypes = {{}, {}}
+  e.fluids_count = 2
+  local reads = 0
+  e.get_fluid = function(i) assert(i >= 1 and i <= 2); reads = reads + 1; return nil end
+  assert(set().recipe == 'gear' and writes == 1 and reads == 2)
+  assert(e.recipe == force.recipes.gear)
+end
+for _, kind in ipairs{'furnace','rocket-silo','lab','character','container'} do
+  reset(); e.type = kind
+  e.get_recipe = function() error('wrong native class must not be queried') end
+  fails('unsupported_machine', set); assert(writes == 0)
+end
+reset(); busy = true; fails('busy', set); assert(writes == 0)
+reset(); generated = false; fails('not_generated', set); assert(writes == 0)
+reset()
+e.prototype.fixed_recipe = {name='other'}
+fails('recipe_locked', set); assert(writes == 0)
+e.prototype.fixed_recipe = nil; e.crafting_progress = .01
+fails('machine_not_empty', set); assert(writes == 0)
+
+-- The machine's ingredient slot capability counts ingredient kinds, not amounts.
+reset()
+force.recipes.gear.ingredients[2] = {name='copper-plate', type='item', amount=1000}
+e.prototype.ingredient_count = 1
+fails('unsupported_recipe', set); assert(writes == 0)
+e.prototype.ingredient_count = 2
+assert(set().recipe == 'gear' and writes == 1)
+reset(); e.prototype.ingredient_count = nil
+fails('unsupported_recipe', set); assert(writes == 0)
+for _, field in ipairs{'ingredients','products'} do
+  reset(); e.prototype.ingredient_count = 255
+  for i=1,65 do force.recipes.gear[field][i] = {name='item-'..i,type='item',amount=1} end
+  fails('unsupported_recipe', set); assert(writes == 0)
+  reset(); force.recipes.gear[field][1].type = 'fluid'
+  fails('unsupported_recipe', set); assert(writes == 0)
+end
+reset()
+for i=1,129 do e.prototype.crafting_categories['category-'..i] = true end
+fails('unsupported_machine', set); assert(writes == 0)
+reset(); e.prototype.crafting_categories = {['modded-category']=true}
+force.recipes.gear.has_category = function(cat) return cat == 'modded-category' end
+assert(set().recipe == 'gear' and writes == 1)
+
+-- Inspect actual engine storages even when the prototype exposes no fluidboxes.
+reset(); e.fluids_count = 64
+local reads = 0
+e.get_fluid = function(i)
+  reads = reads + 1
+  if i == 64 then return {name='water',amount=0.0001} end
+end
+fails('machine_not_empty', set); assert(reads == 64 and writes == 0)
+reset(); e.fluids_count = 2
+e.get_fluid = function(i) if i == 2 then return {name='water',amount=0} end end
+assert(set().recipe == 'gear' and writes == 1)
+for _, n in ipairs{65, -1, 1.5, false} do
+  reset(); e.fluids_count = n
+  fails('unsupported_machine', set); assert(writes == 0)
+end
+reset(); e.fluids_count = nil
+fails('unsupported_machine', set); assert(writes == 0)
+reset(); e.fluids_count = 1
+e.get_fluid = function() error('fluid API failure') end
+local read_ok, read_error = pcall(set)
+assert(not read_ok and tostring(read_error):find('fluid API failure') and writes == 0)
+
+-- An exact same-recipe request never touches inventories, fluids, locks or progress.
+reset(); e.recipe = force.recipes.gear
+inventories[1] = inv{{name='iron-plate',count=2}}
+inventories.modules = inv{{name='speed-module',count=1}}
+e.recipe_locked = true; e.prototype.fixed_recipe = {name='gear'}
+e.crafting_progress, e.bonus_progress, e.fluids_count = .25, .5, 65
+e.get_inventory = function() error('no-op must not touch inventories') end
+e.get_module_inventory = e.get_inventory
+e.is_crafting = function() error('no-op must not inspect craft progress') end
+assert(set().recipe == 'gear' and writes == 0)
+
+-- Empty machines can switch away from an existing recipe without clearing anything.
+reset(); e.name = 'assembling-machine-3'; e.recipe = {name='previous-recipe'}
+assert(set().recipe == 'gear' and writes == 1)
+
+-- Confirmed native surprises are errors, never a retry or a false success.
+reset()
+e.set_recipe = function(n, quality)
+  assert(quality == 'normal'); writes = writes + 1; e.recipe = force.recipes[n]
+  return {{name='unexpected-item',quality='normal',count=1}}
+end
+fails('unexpected_recipe_items', set); assert(writes == 1)
+assert(machine().recipe == 'gear' and writes == 1)
+reset(); e.set_recipe = function() writes = writes + 1; return {} end
+fails('recipe_failed', set); assert(writes == 1)
+
 reset()
 inventories[1], inventories[2], inventories.fuel = inv{{name='iron',count=3}}, inv{{name='gear',count=2}}, inv{{name='coal',count=1}}
 e.recipe = force.recipes.gear

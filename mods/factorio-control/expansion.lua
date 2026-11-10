@@ -162,16 +162,20 @@ function M.register(methods, ctx)
   methods.set_recipe = function(a)
     ctx.idle()
     local c, e = target(a)
-    check(e.name == 'assembling-machine-1' and e.type == 'assembling-machine',
-      'unsupported_machine', 'only assembling-machine-1 is supported')
+    -- set_recipe/recipe_locked are native AssemblingMachine capabilities.
+    -- Furnaces auto-select recipes; silos have additional recipe-dependent state.
+    check(e.type == 'assembling-machine',
+      'unsupported_machine', 'expected an assembling-machine prototype')
     check(e.force == c.force, 'wrong_force', 'machine belongs to another force')
     check(c.can_reach_entity(e), 'out_of_reach', 'machine is not reachable')
     local recipe = c.force.recipes[name(a.recipe)]
     check(recipe and recipe.enabled, 'invalid_recipe', 'recipe is unknown or locked')
     -- 2.1.24 has no can_set_recipe: validate categories, locks and item-only
     -- recipes explicitly before set_recipe (which can otherwise eject items).
-    local supported = false
+    local supported, categories = false, 0
     for category in pairs(e.prototype.crafting_categories or {}) do
+      categories = categories + 1
+      check(categories <= 128, 'unsupported_machine', 'too many crafting categories')
       if recipe.has_category(category) then supported = true end
     end
     check(supported, 'unsupported_recipe', 'machine does not support recipe category')
@@ -181,6 +185,8 @@ function M.register(methods, ctx)
         check(item.type == 'item', 'unsupported_recipe', 'only item recipes are supported')
       end
     end
+    check(#recipe.ingredients <= (e.prototype.ingredient_count or 0),
+      'unsupported_recipe', 'recipe exceeds machine ingredient capacity')
     local previous = e.get_recipe()
     if previous and previous.name == recipe.name then return {recipe = recipe.name} end
     check(not e.recipe_locked and not e.prototype.fixed_recipe, 'recipe_locked', 'machine recipe is locked')
@@ -192,11 +198,18 @@ function M.register(methods, ctx)
     end
     local modules = e.get_module_inventory()
     check(not modules or modules.is_empty(), 'machine_not_empty', 'empty machine modules before changing recipe')
-    -- Vanilla assembler-1 has no fluids. Refuse modded fluid-capable variants
-    -- rather than risking a recipe change discarding hidden fluid contents.
-    check(not next(e.prototype.fluidbox_prototypes or {}),
-      'unsupported_machine', 'fluid-capable assemblers are not supported')
-    local removed = e.set_recipe(recipe.name)
+    -- 2.1.24 reports all native fluid storages, not just visible fluidbox
+    -- prototypes. Dry fluid-capable assemblers are safe for item-only recipes;
+    -- even a fractional residue must be drained before changing a recipe.
+    local fluids = e.fluids_count
+    check(type(fluids) == 'number' and fluids >= 0 and fluids <= 64 and fluids == math.floor(fluids),
+      'unsupported_machine', 'invalid or oversized fluid storage count')
+    for i = 1, fluids do
+      local fluid = e.get_fluid(i)
+      check(not fluid or fluid.amount == 0,
+        'machine_not_empty', 'empty all machine fluid storages before changing recipe')
+    end
+    local removed = e.set_recipe(recipe.name, 'normal')
     check(not next(removed), 'unexpected_recipe_items', 'recipe change unexpectedly ejected items; do not retry')
     local confirmed = e.get_recipe()
     check(confirmed and confirmed.name == recipe.name, 'recipe_failed', 'machine did not accept recipe')
