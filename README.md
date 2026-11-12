@@ -94,13 +94,30 @@ Install the Gleam toolchain and fetch dependencies first (see [EYG programs](#ey
 ```sh
 mix deps.get
 mix test
-# Opt-in: modifies the running test world with a small temporary fixture.
-mix test --include live
+# Opt-in: native engine tests in a fresh offline world; no server connection.
+mix test --include headless test/headless_test.exs
 # On the existing POC save: mines real fuel and verifies fresh iron production.
 mix run scenarios/production.exs
 ```
 
-Process-lifecycle tests use small fake executables to exercise Port output, readiness, startup failure, and graceful shutdown. Protocol tests use local fake TCP servers, covering fragmented reads, multi-packet replies, authentication rejection, malformed frames, response IDs, deadlines, and lost replies without retries. Live tests require an idle mod-owned bot on Nauvis with room nearby, spare inventory space, and no furnace in its inventory. They temporarily grant two chest items and two wood through administrator Lua, then clean up the fixture. Do not run another bot plan concurrently. A failed test or transport loss can require manual fixture cleanup.
+Process-lifecycle tests use small fake executables to exercise Port output,
+readiness, fast one-shot exits, startup failure, and graceful shutdown. Protocol
+tests use local fake TCP servers, covering fragmented reads, multi-packet replies,
+authentication rejection, malformed frames, response IDs, deadlines, and lost
+replies without retries.
+
+The opt-in [offline headless suite](docs/headless-tests.md) uses Factorio's native
+`--test-scenario` runner, with copied mods and a disposable world. It opens no
+multiplayer/RCON ports and never reads the playing save or its credentials. Real
+engine tests cover all quality tiers, partial transfers, stack metadata and dry/wet
+assembler-2/3 recipe safety. Captured native receipts are also replayed through
+typed EYG; this is contract conformance, not a real-time RCON end-to-end test.
+Artifacts and sources are retained under `tmp/headless-*`. Default `mix test`
+starts no game process and requires no Factorio installation.
+
+The legacy `--include live` probe still targets an existing server and grants
+administrator fixtures. Do not run it in a playing world; it is not the isolated
+engine suite and is not needed for the workflow above.
 
 Both production scenarios use the existing POC iron drill at `(29,-42)`, furnace at `(29,-40)`, and coal patch near `(44,17)`. They inspect the patch, choose an observed tile with at least 12 coal, walk to it and mine 12 pieces. They return, collect finished plates into the bot inventory, record a new output baseline, fuel both machines, and wait for fresh plates. They create no items. The route must remain clear, a suitable coal tile must remain within the five-tile search radius, and the bot must have room for fuel and collected plates.
 
