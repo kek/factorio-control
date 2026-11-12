@@ -6,7 +6,7 @@ defmodule FactorioControl.ServerTest do
     dir =
       Path.join(
         System.tmp_dir!(),
-        "factorio-port-#{context.test}-#{System.unique_integer([:positive])}"
+        "factorio-port-#{context.test}-#{Base.encode16(:crypto.strong_rand_bytes(8))}"
       )
 
     File.mkdir_p!(dir)
@@ -54,6 +54,35 @@ defmodule FactorioControl.ServerTest do
     assert %{state: :exited, exit_status: 17} = Server.status(server)
     Server.subscribe(server)
     assert_receive {:factorio, ^server, {:exit_status, 17}}
+    GenServer.stop(server)
+  end
+
+  test "one-shot processes retain their real exit status even when they exit immediately",
+       context do
+    for code <- [0, 17] do
+      executable = fixture(context, "echo one-shot\nexit #{code}\n")
+      {:ok, server} = Server.start_link(executable: executable, password: "unused")
+      assert {:ok, ^code} = Server.await_exit(server)
+      assert %{state: :exited, exit_status: ^code, output: output} = Server.status(server)
+      assert output =~ "one-shot"
+      assert :ok = Server.stop(server)
+      GenServer.stop(server)
+    end
+  end
+
+  test "a one-shot wait timeout leaves the process owned and stoppable", context do
+    executable =
+      fixture(
+        context,
+        "while IFS= read -r command; do [ \"$command\" = /quit ] && exit 0; done\n"
+      )
+
+    {:ok, server} = Server.start_link(executable: executable, password: "unused")
+    assert {:error, :exit_timeout} = Server.await_exit(server, 0)
+    assert %{state: :starting, os_pid: pid} = Server.status(server)
+    assert is_integer(pid)
+    assert :ok = Server.stop(server)
+    assert {:ok, 0} = Server.await_exit(server, 0)
     GenServer.stop(server)
   end
 

@@ -24,6 +24,26 @@ defmodule FactorioControl.Server do
     await_until(server, System.monotonic_time(:millisecond) + timeout)
   end
 
+  @doc "Wait for a Port-owned one-shot process to exit; timeout leaves ownership intact."
+  def await_exit(server, timeout \\ 30_000) when is_integer(timeout) and timeout >= 0 do
+    await_exit_until(server, System.monotonic_time(:millisecond) + timeout)
+  end
+
+  defp await_exit_until(server, deadline) do
+    case status(server) do
+      %{state: :exited, exit_status: code} ->
+        {:ok, code}
+
+      _ ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          {:error, :exit_timeout}
+        else
+          Process.sleep(50)
+          await_exit_until(server, deadline)
+        end
+    end
+  end
+
   defp await_until(server, deadline) do
     case status(server) do
       %{state: :running} ->
@@ -65,7 +85,10 @@ defmodule FactorioControl.Server do
             {:env, [{~c"FACTORIO_RCON_PASSWORD", to_charlist(password)}]}
           ])
 
-        {:os_pid, os_pid} = Port.info(port, :os_pid)
+        # A one-shot command may exit before init queries its OS pid. The queued
+        # exit_status is still authoritative; do not turn a fast exit into a
+        # misleading could_not_start_server error.
+        os_pid = port_os_pid(port)
 
         {:ok,
          %{
@@ -178,6 +201,15 @@ defmodule FactorioControl.Server do
       request_quit(state.port)
       wait_for_exit(state.port, System.monotonic_time(:millisecond) + state.shutdown_timeout)
     end
+  end
+
+  defp port_os_pid(port) do
+    case Port.info(port, :os_pid) do
+      {:os_pid, pid} -> pid
+      nil -> nil
+    end
+  rescue
+    ArgumentError -> nil
   end
 
   defp request_quit(port) do
