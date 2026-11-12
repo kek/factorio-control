@@ -59,6 +59,12 @@ state, not mocked inventory behavior:
 - Blueprint labels, contents, entity tags and item identity.
 - Rare armor retaining uncommon equipment and stored energy.
 - Damaged stacks retaining health.
+- All five logistic chest types: storage observations, normal/rare round trips,
+  native bars and partial capacity.
+- Machine module slots: exact qualities, partial capacity, inventory observations,
+  same-recipe safeguards, removal followed by recipe changes, non-module/missing
+  inventory rejection, and incompatible productivity modules in beacons.
+- Ownership/reach guards and hidden enemy module contents.
 - Dry fluid-capable assembler-2 and assembler-3 recipe changes.
 - Input, output and module inventory guards, including same-recipe no-ops.
 - Native craft/productivity progress and recipe-lock guards.
@@ -74,7 +80,8 @@ production mod.
 
 Each native method request and real response is recorded in
 `script-output/native-effects.jsonl`. After the engine exits, the Elixir test
-replays the supported transfer/recipe receipts through actual typed EYG programs,
+replays transfer, recipe, chest-limit and inventory-inspection receipts through
+actual typed EYG programs,
 asserting exact request equivalence, acceptance/errors, bounded moved counts and
 quality acknowledgement. Every replay has its own `.eyg` source and JSONL trace.
 

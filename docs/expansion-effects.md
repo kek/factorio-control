@@ -14,7 +14,7 @@ graphical client's installation or connectivity.
 | `InspectTransport` | `{name,position}` | Read-only normal-quality base `transport-belt`, `underground-belt`, or `splitter` on the bot's surface, within 64 tiles at a generated position. Returns `{tick,name,x_milli,y_milli,direction,lanes:[{index,items:[{name,quality,count}]}]}`. Direction is the actual integer `defines.direction` value. All real transport lines (1-based indices from `get_max_transport_line_index`, at most 8), including underground and splitter lines, are reported separately, even when empty; item qualities/counts are preserved. Errors propagate, never treated as empty lines. No inventory or entity state is changed. |
 | `InspectWater` | `{radius}` | Up to 200 generated water-collision tiles within 1–64 tiles of the bot, plus truncation. A truncated result does not identify the globally nearest shore. |
 | `InspectTechnology` | `{name}` | Enabled/researched state, prerequisites, science ingredients/cost, current progress and normal craft/mining trigger requirements. |
-| `InspectMachine` | `{name,position}` | Health, status, recipe, energy/network, separate input/output/fuel/ammo/storage inventories and fluid amounts/temperatures. Friendly inventories only; known position within 64 tiles of the bot. |
+| `InspectMachine` | `{name,position}` | Health, status, recipe, energy/network, separate input/output/fuel/ammo/storage/module inventories and fluid amounts/temperatures. Friendly inventories only; known position within 64 tiles of the bot. |
 
 Input positions use integer half tiles. Entity observations use thousandths;
 fluids, temperature, research progress and health also use integer thousandths.
@@ -48,7 +48,7 @@ and preserve damage.
 | `BuildUnderground` | `{position,direction,end_type}` | Explicit `input`/`output` endpoint, normal underground-belt item and placement rules. |
 | `ConnectPower` | `{from,to}` | Two reachable friendly small poles, normal copper wire reach, player wire origin; existing connection is a no-op. Never overrides wire reach. |
 | `SetRecipe` | `{name,position,recipe}` | Any reachable friendly `assembling-machine` prototype, unlocked item-only recipe within its crafting categories and ingredient capacity. Changes require empty input/output/trash/dump/module inventories and all fluid stores, no active craft/productivity progress and no recipe lock/fixed recipe. Same recipe is a no-op. |
-| `SetChestLimit` | `{name,position,slots}` | Reachable friendly chest, inventory bar supported, 1–48 slots and within actual inventory size. Hides excess slots from automation without deleting contents. |
+| `SetChestLimit` | `{name,position,slots}` | Reachable friendly ordinary or logistic chest, inventory bar supported, 1–48 slots and within actual inventory size. Hides excess slots from automation without deleting contents. |
 
 `SetRecipe` uses the machine's native class, crafting categories and ingredient
 capacity, not a prototype-name allowlist. This covers later-tier and modded
@@ -94,8 +94,21 @@ reconstructed or serialized. Destination bars and native slot restrictions apply
 a successful receipt may report less than the requested quantity when capacity
 runs out. Always check its actual count before dependent work.
 
-`Transfer` additionally supports assembler/lab `input` and turret `ammo`. Existing
-selectors retain their meaning. No count-only transfer refreshes a magazine,
+Both transfer effects support ordinary/logistic chest `main`, assembler/lab
+`input`, turret `ammo`, and native `modules`, alongside existing selectors.
+`modules` resolves through `get_module_inventory()` rather than a prototype-name
+list. Missing inventories return `invalid_inventory`; only module items are
+accepted. Native `can_insert(stack)` checks machine/recipe compatibility before
+giving modules. Full or incompatible destinations return `inventory_full` if
+nothing moves; partial capacity still reports the actual moved count. Existing
+modules are never automatically replaced or upgraded.
+
+`InspectEntity` and `InspectMachine` expose friendly modules separately as
+`modules:[{name,quality,count}]`, bounded to 256 distinct stacks and empty when
+unsupported. Main logistic storage is exposed as `inventory` by both inspectors.
+Enemy item/module inventories remain hidden. `SetChestLimit` supports ordinary
+and logistic chests with native inventory bars; no logistic request/filter
+configuration is performed. Existing selectors retain their meaning. No count-only transfer refreshes a magazine,
 science pack or damaged building's metadata.
 
 `Transfer` retains its normal-quality argument shape. `TransferQuality` adds

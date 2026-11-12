@@ -240,7 +240,7 @@ the server; your standalone client needs the same mod when joining.
 | Effect | Available information |
 | --- | --- |
 | `InspectBot({})` | Position, health, surface, inventory, and active action (if any). |
-| `InspectEntity({name,position:{x2,y2}})` | One entity on the bot's surface, including native `direction`, `supports_direction`, `rotatable`, `minable`, symbolic status (`full_output`, `no_fuel`, etc.), resource amount, and separate main, fuel, input and output inventories where supported. The lookup does not require the bot to be within interaction reach. |
+| `InspectEntity({name,position:{x2,y2}})` | One entity on the bot's surface, including native `direction`, `supports_direction`, `rotatable`, `minable`, symbolic status (`full_output`, `no_fuel`, etc.), resource amount, and separate main, fuel, input, output and module inventories where supported. The lookup does not require the bot to be within interaction reach. |
 | `InspectResources({item,radius})` | Positions and remaining quantities for up to 200 matching resource tiles within 0–64 tiles of the bot, plus a truncation flag. |
 | `InspectAction({id})` | Action status, partial collected count, target, tick deadlines, and error details. IDs come from action receipts in the trace; only the latest 64 actions are retained. |
 | `InspectSimulation({})` | Tick, game speed, explicit pause flag, connected player count, and game version. Works even before spawning a bot. |
@@ -315,6 +315,15 @@ out, a successful receipt reports the **actual moved count**, possibly less than
 requested. Check that count before dependent actions; never blindly repeat a
 partially completed transfer. Zero-capacity transfers fail without moving items.
 Transfers are bounded to 1,024 source slots and 65,536 source/destination slot pairs.
+
+Use `inventory: "main"` for ordinary or logistic chests and `inventory: "modules"`
+for any friendly entity with a native module inventory. Module slots accept only
+module items and respect native machine/recipe compatibility; full slots do not
+trigger replacement or upgrading. `InspectEntity` and `InspectMachine` expose a
+separate `modules` list with item names, qualities and counts. Ownership, reach,
+exact quality selection and partial-count rules apply to both selectors.
+`SetChestLimit` also accepts logistic chests when their native inventory supports
+a bar. These operations do not configure logistic requests or filters.
 
 Grant `TransferQuality` explicitly with `--effects TransferQuality`; granting
 `Transfer` alone does not authorize it. The new effect uses a dedicated
