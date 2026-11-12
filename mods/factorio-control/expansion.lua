@@ -219,7 +219,8 @@ function M.register(methods, ctx)
   methods.set_chest_limit = function(a)
     ctx.idle()
     local c, e = target(a)
-    check(e.force == c.force and e.type == 'container', 'wrong_force', 'expected a friendly chest')
+    check(e.force == c.force and (e.type == 'container' or e.type == 'logistic-container'),
+      'wrong_force', 'expected a friendly chest')
     check(c.can_reach_entity(e), 'out_of_reach', 'chest is not reachable')
     local inv = inventory(e, 'chest')
     check(inv and inv.supports_bar(), 'unsupported_inventory', 'chest has no inventory bar')
@@ -235,8 +236,9 @@ function M.register(methods, ctx)
       status_name = ctx.status_names[e.status] or 'unknown', health = e.health or 0,
       max_health = health(e), energy = e.energy or 0, recipe = '',
       network_id = e.electric_network_id or 0, fuel = {}, input = {}, output = {},
-      ammo = {}, inventory = {}, fluids = {}}
+      ammo = {}, inventory = {}, modules = {}, fluids = {}}
     if e.force ~= c.force then return out end
+    out.modules = bounded_contents(e.get_module_inventory())
     out.fuel = bounded_contents(e.get_fuel_inventory())
     out.output = bounded_contents(e.get_output_inventory())
     if crafter(e) then

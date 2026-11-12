@@ -89,7 +89,8 @@ defmodule FactorioControl.Eyg do
                 inventory: list(stack),
                 fuel: list(stack),
                 input: list(stack),
-                output: list(stack)
+                output: list(stack),
+                modules: list(stack)
               )
           )
         ),
@@ -384,7 +385,8 @@ defmodule FactorioControl.Eyg do
            "inventory" => stacks(e["inventory"]),
            "fuel" => stacks(e["fuel"]),
            "input" => stacks(e["input"]),
-           "output" => stacks(e["output"])
+           "output" => stacks(e["output"]),
+           "modules" => stacks(e["modules"])
          }
        }}
     end
@@ -573,7 +575,7 @@ defmodule FactorioControl.Eyg do
          :ok <- item(item),
          :ok <- item(entity),
          true <-
-           inventory in ["fuel", "output", "input", "main", "ammo"] and
+           inventory in ["fuel", "output", "input", "main", "ammo", "modules"] and
              direction in ["take", "give"],
          {:ok, response} <-
            invoke(

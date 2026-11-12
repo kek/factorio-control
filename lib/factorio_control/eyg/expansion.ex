@@ -98,6 +98,7 @@ defmodule FactorioControl.Eyg.Expansion do
                 output: list(stack),
                 ammo: list(stack),
                 inventory: list(stack),
+                modules: list(stack),
                 fluids: list(record(name: text, amount_milli: int, temperature_milli: int))
               )
           )
@@ -253,6 +254,7 @@ defmodule FactorioControl.Eyg.Expansion do
            "output" => stacks(m["output"]),
            "ammo" => stacks(m["ammo"]),
            "inventory" => stacks(m["inventory"]),
+           "modules" => stacks(m["modules"]),
            "fluids" =>
              Enum.map(collection(m["fluids"]), fn f ->
                %{

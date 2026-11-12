@@ -244,7 +244,8 @@ e.fluids_count = 65; fails('unsupported_machine', machine); e.fluids_count = 2
 e.force = {name='enemy'}
 e.get_inventory = function() error('must not inspect enemy inventory') end
 e.get_fuel_inventory = e.get_inventory; e.get_output_inventory = e.get_inventory; e.get_fluid = e.get_inventory
-m = machine(); assert(next(m.inventory) == nil and next(m.fuel) == nil and #m.fluids == 0)
+e.get_module_inventory = e.get_inventory
+m = machine(); assert(next(m.inventory) == nil and next(m.fuel) == nil and next(m.modules) == nil and #m.fluids == 0)
 assert(writes == 0)
 reset()
 e.get_fuel_inventory = function() error('API failure') end
@@ -273,4 +274,18 @@ assert(bar==3 and chest.get_contents()[1].count==99)
 fails('invalid_argument',function() methods.set_chest_limit{name='iron-chest',position={x=1,y=0},slots=0} end)
 e.force={name='enemy'}
 fails('wrong_force',function() methods.set_chest_limit{name='iron-chest',position={x=1,y=0},slots=1} end)
+e.force=force; e.name='modded-logistic-chest'; e.type='logistic-container'
+assert(methods.set_chest_limit{name=e.name,position={x=1,y=0},slots=1}.slots==1)
+assert(bar==2 and chest.get_contents()[1].count==99)
+assert(machine().inventory[1].count==99)
+chest.supports_bar=function() return false end
+fails('unsupported_inventory',function() methods.set_chest_limit{name=e.name,position={x=1,y=0},slots=1} end)
+reset()
+inventories.modules=inv{{name='speed-module',quality='rare',count=2}}
+assert(machine().modules[1].quality=='rare' and machine().modules[1].count==2)
+local many={};for i=1,257 do many[i]={name='module-'..i,quality='normal',count=1} end
+inventories.modules=inv(many);fails('unsupported_inventory',machine)
+e.get_module_inventory=function() error('module API failure') end
+local module_ok,module_err=pcall(machine)
+assert(not module_ok and tostring(module_err):find('module API failure'))
 print('PASS: expansion bounds, water survey, research safety, recipe conservation, stock limits and machine inventories')

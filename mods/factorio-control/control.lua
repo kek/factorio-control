@@ -78,6 +78,11 @@ end
 local function contents(inventory)
   return inventory and inventory.get_contents() or {}
 end
+local function module_contents(e)
+  local result = contents(e.get_module_inventory())
+  check(#result <= 256, "unsupported_inventory", "Too many distinct module stacks")
+  return result
+end
 local function undamaged(inventory, item)
   for i = 1, #inventory do
     local s = inventory[i]
@@ -182,13 +187,16 @@ local function entity_summary(e)
   end
   if e.force.name == character().force.name then
     if e.type == "character" then out.inventory = contents(e.get_main_inventory()) end
-    if e.type == "container" then out.inventory = contents(e.get_inventory(defines.inventory.chest)) end
+    if e.type == "container" or e.type == "logistic-container" then
+      out.inventory = contents(e.get_inventory(defines.inventory.chest))
+    end
   end
   if npc_corpse(e) then out.inventory = contents(e.get_inventory(defines.inventory.character_corpse)) end
   if e.force.name == character().force.name and e.type ~= "character" then
     out.status = e.status
     out.status_name = status_names[e.status] or "unknown"
     out.fuel = contents(e.get_fuel_inventory())
+    out.modules = module_contents(e)
     out.output = contents(e.get_output_inventory())
     if e.type == "furnace" or e.type == "assembling-machine" then
       out.input = contents(e.get_inventory(defines.inventory.crafter_input))
@@ -460,13 +468,14 @@ function methods.rotate(args)
 end
 
 local function inventory(e, name)
+  if name == "modules" then return e.get_module_inventory() end
   if name == "fuel" then return e.get_fuel_inventory() end
   if name == "output" then return e.get_output_inventory() end
   if name == "input" and (e.type == "furnace" or e.type == "assembling-machine") then return e.get_inventory(defines.inventory.crafter_input) end
   if name == "input" and e.type == "lab" then return e.get_inventory(defines.inventory.lab_input) end
   if name == "ammo" and e.type == "ammo-turret" then return e.get_inventory(defines.inventory.turret_ammo) end
   if name == "main" and npc_corpse(e) then return e.get_inventory(defines.inventory.character_corpse) end
-  if name == "main" and (e.type == "container" or e.type == "character") then
+  if name == "main" and (e.type == "container" or e.type == "logistic-container" or e.type == "character") then
     return e.type == "character" and e.get_main_inventory() or e.get_inventory(defines.inventory.chest)
   end
   fail("invalid_inventory", "Invalid inventory for entity type")
@@ -490,6 +499,9 @@ local function transfer(args, quality)
   if args.direction == "take" then source, dest = other, source end
   local item = args.item
   check(type(item) == "string" and supported_product(item), "invalid_argument", "A valid item prototype is required")
+  if args.inventory == "modules" then
+    check(prototypes.item[item].type == "module", "invalid_argument", "Only module items may use module slots")
+  end
   local count = integer(args.count, "count", 1, 1000)
   check(source.get_item_count{name = item, quality = quality} >= count,
     "no_item", "Not enough " .. quality .. "-quality items in source")
@@ -503,7 +515,10 @@ local function transfer(args, quality)
   local moved = 0
   for i = 1, #source do
     local s = source[i]
-    if s.valid_for_read and s.name == item and s.quality.name == quality then
+    if s.valid_for_read and s.name == item and s.quality.name == quality and
+        (args.inventory ~= "modules" or args.direction ~= "give" or dest.can_insert(s)) then
+      -- Module compatibility depends on the owning machine and its recipe.
+      -- Ask the native inventory before using individual stack transfers.
       for j = 1, limit do
         local before = s.count
         dest[j].transfer_stack(s, math.min(count - moved, before))

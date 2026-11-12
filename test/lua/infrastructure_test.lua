@@ -118,6 +118,7 @@ local function reset()
     return {valid = true, name = spec.name, type = 'container', position = spec.position,
       force = c.force, get_inventory = function() return inventory() end,
       get_fuel_inventory = function() end, get_output_inventory = function() end,
+      get_module_inventory = function() end,
       destroy = function() created.destroyed = true end}
   end
   storage.bot = {sequence = 0, actions = {}, character = c}
@@ -127,7 +128,7 @@ local function entity(name, kind, force, x)
     minable = true, position = {x = x or 1, y = 0}, prototype = {},
     direction = defines.direction.north, supports_direction = false, rotatable = false,
     get_inventory = function() end, get_fuel_inventory = function() end,
-    get_output_inventory = function() end}
+    get_output_inventory = function() end, get_module_inventory = function() end}
   world[#world + 1] = e
   return e
 end
@@ -310,6 +311,25 @@ local function native_inventory(stacks, size)
     end
     return n
   end
+  inv.can_insert = function(s)
+    assert(s.valid_for_read, 'native stack required for compatibility check')
+    return not inv.reject_modules and not inv.full
+  end
+  inv.get_contents = function()
+    local rows, by_key = {}, {}
+    for _, s in ipairs(inv) do
+      if s.valid_for_read then
+        local key = s.name .. '@' .. s.quality.name
+        local row = by_key[key]
+        if not row then
+          row = {name = s.name, quality = s.quality.name, count = 0}
+          by_key[key] = row; rows[#rows + 1] = row
+        end
+        row.count = row.count + s.count
+      end
+    end
+    return rows
+  end
   inv.supports_bar = function() return inv.bar ~= nil end
   inv.get_bar = function() return inv.bar end
   return inv
@@ -453,6 +473,57 @@ test('TransferQuality preserves quality across partial-capacity moves and native
   target.unreachable = false
   ok('walk_to', {position = {x = 2, y = 2}, timeout_ticks = 10})
   denied('busy', 'transfer_quality', a); eq(main[1].count, 4)
+end)
+
+test('logistic storage uses the main chest inventory for both transfer effects and inspection', function()
+  local e = entity('modded-logistic-chest', 'logistic-container')
+  prototypes.entity[e.name] = e.prototype
+  local other = native_inventory({{name='iron-plate',count=5,quality={name='rare'}}})
+  e.get_inventory = function(id) eq(id, defines.inventory.chest); return other end
+  main = native_inventory({}); c.get_main_inventory = function() return main end
+  local a = {entity=e.name,position=e.position,inventory='main',direction='take',item='iron-plate',quality='rare',count=2}
+  eq(ok('transfer_quality', a).count, 2); eq(main[1].count, 2); eq(other[1].count, 3)
+  a.direction='give'; eq(ok('transfer_quality', a).count, 2)
+  local observed=ok('inspect_entity',{name=e.name,position=e.position})
+  eq(observed.inventory[1].quality,'rare'); eq(observed.inventory[1].count,5)
+  eq(#observed.modules,0)
+  e.force={name='enemy'}
+  denied('invalid_target','transfer_quality',a)
+  observed=ok('inspect_entity',{name=e.name,position=e.position})
+  eq(observed.inventory,nil); eq(observed.modules,nil)
+end)
+
+test('module transfers use the native capability, compatibility checks and selected quality', function()
+  prototypes.item['speed-module']={type='module'}
+  local e=entity('modded-machine','assembling-machine')
+  prototypes.entity[e.name]=e.prototype
+  local modules=native_inventory({},2); modules.capacity=1
+  e.get_module_inventory=function() return modules end
+  main=native_inventory({{name='speed-module',count=3,quality={name='rare'}},
+    {name='speed-module',count=2}})
+  c.get_main_inventory=function() return main end
+  local a={entity=e.name,position=e.position,inventory='modules',direction='give',item='speed-module',quality='rare',count=3}
+  eq(ok('transfer_quality',a).count,2); eq(main[1].count,1); eq(main[2].count,2)
+  local observed=ok('inspect_entity',{name=e.name,position=e.position})
+  eq(observed.modules[1].name,'speed-module'); eq(observed.modules[1].quality,'rare'); eq(observed.modules[1].count,2)
+  a.direction='take'; a.count=2
+  eq(ok('transfer_quality',a).count,2); eq(main[1].count,3)
+  a.direction='give'; modules.reject_modules=true
+  denied('inventory_full','transfer_quality',a); eq(main[1].count,3)
+  a.item='iron-plate'; denied('invalid_argument','transfer_quality',a)
+  a.item='speed-module'; e.get_module_inventory=function() end
+  denied('invalid_inventory','transfer_quality',a)
+end)
+
+test('module observations are bounded and inventory API failures are not hidden', function()
+  local e=entity('modded-machine','assembling-machine')
+  prototypes.entity[e.name]=e.prototype
+  e.get_module_inventory=function()
+    return {get_contents=function() local rows={} for i=1,257 do rows[i]={name='module-'..i,quality='normal',count=1} end return rows end}
+  end
+  denied('unsupported_inventory','inspect_entity',{name=e.name,position=e.position})
+  e.get_module_inventory=function() error('native inventory failure') end
+  denied('internal_error','inspect_entity',{name=e.name,position=e.position})
 end)
 
 test('ConnectPower checks friendly/reachable poles and normal wire reach/player origin', function()
