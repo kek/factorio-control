@@ -3,7 +3,7 @@ defmodule FactorioControl.HeadlessTest do
   alias FactorioControl.{Eyg, Server, TestHeadless}
   @moduletag :headless
   @moduletag timeout: 180_000
-  @cases ~w(exact-quality-and-legacy no-quality-substitution rare-partial-capacity partial-ammunition blueprint-metadata equipped-armor damaged-stack dry-fluid-capable-assembler-tiers nonempty-input-output-and-modules native-progress-and-recipe-locks fluid-residue-is-preserved unsupported-and-locked-recipes)
+  @cases ~w(exact-quality-and-legacy no-quality-substitution rare-partial-capacity partial-ammunition blueprint-metadata equipped-armor damaged-stack logistic-container-inventories machine-module-transfers inventory-permission-guards dry-fluid-capable-assembler-tiers nonempty-input-output-and-modules native-progress-and-recipe-locks fluid-residue-is-preserved unsupported-and-locked-recipes)
 
   test "offline engine invariants and captured native receipts conform to typed EYG" do
     project = Path.expand("..", __DIR__)
@@ -46,12 +46,14 @@ defmodule FactorioControl.HeadlessTest do
       receipts =
         TestHeadless.read_jsonl!(Path.join(run.artifacts, "script-output/native-effects.jsonl"))
 
-      assert length(receipts) in 1..128
+      assert length(receipts) in 1..256
 
       replayed =
         Enum.with_index(receipts, 1)
         |> Enum.count(fn {receipt, index} -> replay(receipt, index, run.artifacts) end)
 
+      expected = Enum.count(receipts, &(&1["request"]["method"] != "spawn"))
+      assert replayed == expected, "every recorded non-setup request must have typed EYG coverage"
       assert replayed > 30
 
       File.write!(
@@ -89,12 +91,22 @@ defmodule FactorioControl.HeadlessTest do
          index,
          directory
        )
-       when method in ["transfer", "transfer_quality", "set_recipe"] do
+       when method in [
+              "transfer",
+              "transfer_quality",
+              "set_recipe",
+              "set_chest_limit",
+              "inspect_entity",
+              "inspect_machine"
+            ] do
     effect =
       %{
         "transfer" => "Transfer",
         "transfer_quality" => "TransferQuality",
-        "set_recipe" => "SetRecipe"
+        "set_recipe" => "SetRecipe",
+        "set_chest_limit" => "SetChestLimit",
+        "inspect_entity" => "InspectEntity",
+        "inspect_machine" => "InspectMachine"
       }[method]
 
     position = args["position"]
@@ -105,13 +117,7 @@ defmodule FactorioControl.HeadlessTest do
         "y2" => round(position["y"] * 2)
       })
 
-    source = """
-    match perform #{effect}(input.request) {
-      Ok(r) -> {{accepted: True({}), count: r.count, error: ""}}
-      Error(e) -> {{accepted: False({}), count: 0, error: e}}
-    }
-    """
-
+    source = TestHeadless.replay_source(effect)
     inputs = %{"request" => host_args}
     prefix = Path.join(directory, "eyg-#{String.pad_leading(to_string(index), 3, "0")}")
     File.write!(prefix <> ".eyg", Eyg.Evaluator.program(source, inputs))
@@ -134,7 +140,27 @@ defmodule FactorioControl.HeadlessTest do
     assert value["accepted"] == response["ok"], inspect(event)
 
     if response["ok"] do
-      assert value["count"] == if(method == "set_recipe", do: 0, else: response["data"]["count"])
+      if method in ["inspect_entity", "inspect_machine"] do
+        for field <- ["inventory", "modules"] do
+          native = response["data"][field]
+
+          expected =
+            if is_list(native),
+              do: Enum.map(native, &Map.take(&1, ["name", "quality", "count"])),
+              else: []
+
+          assert value[field] == expected
+        end
+      else
+        expected =
+          case method do
+            "set_recipe" -> 0
+            "set_chest_limit" -> args["slots"]
+            _ -> response["data"]["count"]
+          end
+
+        assert value["count"] == expected
+      end
     else
       assert value["error"] =~ response["error"]["code"]
     end

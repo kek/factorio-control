@@ -1,6 +1,6 @@
 defmodule FactorioControl.HeadlessIsolationTest do
   use ExUnit.Case, async: true
-  alias FactorioControl.TestHeadless
+  alias FactorioControl.{Eyg, TestHeadless}
 
   test "preparation uses exclusive copied mods and offline-only arguments" do
     project =
@@ -73,6 +73,66 @@ defmodule FactorioControl.HeadlessIsolationTest do
     mod_list = TestHeadless.read_json!(Path.join(a.directory, "mods/mod-list.json"))
     assert %{"name" => "quality", "enabled" => true} in mod_list["mods"]
     assert %{"name" => "space-age", "enabled" => false} in mod_list["mods"]
+  end
+
+  test "replay source generation distinguishes mutation receipts from observations" do
+    position = %{"x2" => 1, "y2" => 1}
+
+    transfers = %{
+      "entity" => "iron-chest",
+      "inventory" => "main",
+      "direction" => "give",
+      "item" => "iron-plate",
+      "count" => 1,
+      "position" => position
+    }
+
+    requests = [
+      {"Transfer", transfers},
+      {"TransferQuality", Map.put(transfers, "quality", "rare")},
+      {"SetRecipe",
+       %{"name" => "assembling-machine-2", "position" => position, "recipe" => "iron-gear-wheel"}},
+      {"SetChestLimit", %{"name" => "iron-chest", "position" => position, "slots" => 1}},
+      {"InspectEntity", %{"name" => "assembling-machine-2", "position" => position}},
+      {"InspectMachine", %{"name" => "assembling-machine-2", "position" => position}}
+    ]
+
+    for {effect, request} <- requests do
+      modules = [%{"name" => "speed-module", "quality" => "rare", "count" => 2}]
+
+      call = fn _, _ ->
+        {:ok,
+         %{
+           "ok" => true,
+           "tick" => 1,
+           "data" => %{
+             "count" => 1,
+             "quality" => request["quality"] || "normal",
+             "name" => "assembling-machine-2",
+             "type" => "assembling-machine",
+             "position" => %{"x" => 0.5, "y" => 0.5},
+             "health" => 100,
+             "max_health" => 100,
+             "modules" => modules
+           }
+         }}
+      end
+
+      assert {:ok, %{"value" => %{"accepted" => true} = value}, _} =
+               Eyg.run(nil, TestHeadless.replay_source(effect),
+                 effects: [effect],
+                 inputs: %{"request" => request},
+                 call: call
+               )
+
+      if effect in ["InspectEntity", "InspectMachine"] do
+        assert value["modules"] == modules
+        refute Map.has_key?(value, "count")
+      else
+        assert value["count"] == if(effect == "SetRecipe", do: 0, else: 1)
+        refute Map.has_key?(value, "modules")
+      end
+    end
   end
 
   test "an explicit native run fails clearly without a compatible distribution" do

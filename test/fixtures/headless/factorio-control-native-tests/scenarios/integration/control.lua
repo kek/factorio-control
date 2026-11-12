@@ -25,21 +25,24 @@ local function reject(code, method, args)
   assert(not response.ok, 'unexpected acceptance')
   eq(response.error.code, code)
 end
-local function transfer(direction, item, quality, count, legacy)
-  local args = {entity = 'iron-chest', position = chest.position, inventory = 'main',
+local function transfer(direction, item, quality, count, legacy, target, inventory_name)
+  target = target or chest
+  local args = {entity = target.name, position = target.position, inventory = inventory_name or 'main',
     direction = direction, item = item, count = count}
   if not legacy then args.quality = quality end
   return legacy and 'transfer' or 'transfer_quality', args
 end
-local function move(direction, item, quality, count, legacy)
-  local method, args = transfer(direction, item, quality, count, legacy)
+local function move(...)
+  local method, args = transfer(...)
   return ok(method, args)
 end
 local function count(inv, item, quality)
   return inv.get_item_count{name = item, quality = quality}
 end
 local function stack(inv, item, quality)
-  return assert(inv.find_item_stack{name = item, quality = quality}, 'missing native stack')
+  local found = inv.find_item_stack{name = item, quality = quality}
+  assert(found, 'missing native stack')
+  return found
 end
 local function empty_items()
   carried.clear(); source.clear(); source.set_bar()
@@ -184,6 +187,94 @@ local function run()
     assert(math.abs(stack(carried, 'iron-chest', 'epic').health - 0.4) < 0.001)
     move('give', 'iron-chest', 'epic', 1)
     assert(math.abs(stack(source, 'iron-chest', 'epic').health - 0.4) < 0.001)
+  end)
+  test('logistic-container-inventories', function()
+    for _, name in ipairs{'passive-provider-chest', 'active-provider-chest', 'storage-chest', 'buffer-chest', 'requester-chest'} do
+      empty_items()
+      local e = assert(actor.surface.create_entity{name=name,position={-3.5,-1.5},force=actor.force})
+      eq(e.type, 'logistic-container')
+      local inv=e.get_inventory(defines.inventory.chest)
+      eq(inv.insert{name='iron-plate',quality='normal',count=10},10)
+      eq(inv.insert{name='iron-plate',quality='rare',count=5},5)
+      eq(move('take','iron-plate','rare',2,false,e).count,2)
+      eq(move('give','iron-plate','rare',2,false,e).count,2)
+      eq(move('take','iron-plate','normal',1,true,e).count,1)
+      eq(move('give','iron-plate','normal',1,true,e).count,1)
+      for _, method in ipairs{'inspect_entity','inspect_machine'} do
+        local snapshot=ok(method,{name=e.name,position=e.position})
+        local n=0
+        for _, s in ipairs(snapshot.inventory) do n=n+s.count end
+        eq(n,15); eq(#snapshot.modules,0)
+      end
+      inv.clear(); carried.clear()
+      if inv.supports_bar() then
+        eq(ok('set_chest_limit',{name=e.name,position=e.position,slots=1}).slots,1)
+        eq(inv.get_bar(),2)
+        eq(carried.insert{name='transport-belt',count=108},108)
+        eq(move('give','transport-belt','normal',108,false,e).count,100)
+        eq(move('take','transport-belt','normal',100,false,e).count,100)
+        eq(count(carried,'transport-belt','normal'),108)
+      else
+        reject('unsupported_inventory','set_chest_limit',{name=e.name,position=e.position,slots=1})
+      end
+      e.destroy()
+    end
+  end)
+  test('machine-module-transfers', function()
+    empty_items(); prepare(assembler2,'iron-gear-wheel')
+    local inv=assert(assembler2.get_module_inventory())
+    eq(#inv,2)
+    eq(carried.insert{name='speed-module',quality='rare',count=3},3)
+    eq(carried.insert{name='speed-module',quality='normal',count=2},2)
+    local r=move('give','speed-module','rare',3,false,assembler2,'modules')
+    eq(r.count,2); eq(r.quality,'rare')
+    eq(count(inv,'speed-module','rare'),2)
+    eq(count(carried,'speed-module','rare'),1); eq(count(carried,'speed-module','normal'),2)
+    eq(carried.insert{name='speed-module',quality='legendary',count=1},1)
+    local full_method,full_args=transfer('give','speed-module','legendary',1,false,assembler2,'modules')
+    reject('inventory_full',full_method,full_args)
+    eq(count(inv,'speed-module','rare'),2); eq(count(carried,'speed-module','legendary'),1)
+    for _, method in ipairs{'inspect_entity','inspect_machine'} do
+      local snapshot=ok(method,{name=assembler2.name,position=assembler2.position})
+      eq(snapshot.modules[1].name,'speed-module'); eq(snapshot.modules[1].quality,'rare'); eq(snapshot.modules[1].count,2)
+    end
+    reject('machine_not_empty','set_recipe',recipe_args(assembler2,'copper-cable'))
+    eq(move('take','speed-module','rare',2,false,assembler2,'modules').count,2)
+    eq(count(carried,'speed-module','rare'),3)
+    set(assembler2,'copper-cable')
+    eq(move('give','speed-module','normal',1,true,assembler2,'modules').count,1)
+    eq(move('take','speed-module','normal',1,true,assembler2,'modules').count,1)
+    eq(carried.insert{name='iron-plate',count=1},1)
+    local method,args=transfer('give','iron-plate','normal',1,false,assembler2,'modules')
+    reject('invalid_argument',method,args); eq(count(carried,'iron-plate','normal'),1)
+    method,args=transfer('give','speed-module','rare',1,false,chest,'modules')
+    reject('invalid_inventory',method,args); eq(count(carried,'speed-module','rare'),3)
+    local beacon=assert(actor.surface.create_entity{name='beacon',position={-3.5,-4.5},force=actor.force})
+    local beacon_modules=assert(beacon.get_module_inventory())
+    eq(carried.insert{name='productivity-module',quality='rare',count=1},1)
+    assert(not beacon_modules.can_insert(stack(carried,'productivity-module','rare')), 'fixture requires a native module incompatibility')
+    method,args=transfer('give','productivity-module','rare',1,false,beacon,'modules')
+    reject('inventory_full',method,args)
+    assert(beacon_modules.is_empty()); eq(count(carried,'productivity-module','rare'),1)
+    beacon.destroy()
+  end)
+  test('inventory-permission-guards', function()
+    empty_items(); prepare(assembler2,'iron-gear-wheel')
+    local inv=assembler2.get_module_inventory()
+    eq(inv.insert{name='speed-module',quality='rare',count=1},1)
+    assembler2.force=game.forces.enemy
+    local method,args=transfer('take','speed-module','rare',1,false,assembler2,'modules')
+    reject('invalid_target',method,args)
+    local snapshot=ok('inspect_entity',{name=assembler2.name,position=assembler2.position})
+    eq(snapshot.modules,nil)
+    snapshot=ok('inspect_machine',{name=assembler2.name,position=assembler2.position})
+    eq(#snapshot.modules,0); eq(count(inv,'speed-module','rare'),1)
+    assembler2.force=actor.force; inv.clear()
+    local e=assert(actor.surface.create_entity{name='storage-chest',position={14.5,0.5},force=actor.force})
+    assert(not actor.can_reach_entity(e), 'fixture must be out of interaction reach')
+    method,args=transfer('take','iron-plate','normal',1,false,e)
+    reject('out_of_reach',method,args)
+    e.destroy()
   end)
   test('dry-fluid-capable-assembler-tiers', function()
     for _, e in ipairs{assembler2, assembler3} do

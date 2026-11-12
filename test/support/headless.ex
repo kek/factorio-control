@@ -98,6 +98,28 @@ defmodule FactorioControl.TestHeadless do
     end
   end
 
+  def replay_source("InspectEntity"), do: observation_source("InspectEntity", "entity")
+  def replay_source("InspectMachine"), do: observation_source("InspectMachine", "machine")
+
+  def replay_source(effect)
+      when effect in ["Transfer", "TransferQuality", "SetRecipe", "SetChestLimit"] do
+    """
+    match perform #{effect}(input.request) {
+      Ok(r) -> {{accepted: True({}), count: r.count, error: ""}}
+      Error(e) -> {{accepted: False({}), count: 0, error: e}}
+    }
+    """
+  end
+
+  defp observation_source(effect, field) do
+    """
+    match perform #{effect}(input.request) {
+      Ok(s) -> {{accepted: True({}), inventory: s.#{field}.inventory, modules: s.#{field}.modules, error: ""}}
+      Error(e) -> {{accepted: False({}), inventory: [], modules: [], error: e}}
+    }
+    """
+  end
+
   def collect(run) do
     File.cp_r!(run.directory, run.artifacts)
     run.artifacts
