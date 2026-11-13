@@ -69,6 +69,24 @@ local function prepare(e, name)
   assert(not next(e.set_recipe(name, 'normal')), 'fixture setup unexpectedly ejected items')
   selected(e, name)
 end
+local function transport_snapshot(e)
+  local lanes = {}
+  for i = 1, e.get_max_transport_line_index() do
+    lanes[i] = {index = i, items = e.get_transport_line(i).get_contents()}
+  end
+  return lanes
+end
+local function transport_signature(lanes)
+  local rows = {}
+  for _, lane in ipairs(lanes) do
+    rows[#rows + 1] = lane.index .. ':present'
+    for _, item in ipairs(lane.items) do
+      rows[#rows + 1] = lane.index .. ':' .. item.name .. '@' .. item.quality .. '=' .. item.count
+    end
+  end
+  table.sort(rows)
+  return table.concat(rows, '\n')
+end
 local function test(name, body)
   current = name
   body()
@@ -103,6 +121,50 @@ end
 
 local function run()
   setup()
+  test('transport-tiers-qualities-and-modded-prototypes', function()
+    for _, family in ipairs{
+      {'transport-belt',2,{'transport-belt','fast-transport-belt','express-transport-belt','native-test-belt'}},
+      {'underground-belt',4,{'underground-belt','fast-underground-belt','express-underground-belt','native-test-underground'}},
+      {'splitter',8,{'splitter','fast-splitter','express-splitter','native-test-splitter'}}
+    } do
+      for _, name in ipairs(family[3]) do for _, quality in ipairs{'normal','uncommon','rare','epic','legendary'} do
+        local direction = quality == 'normal' and defines.direction.north or defines.direction.east
+        local p = {4.5,-4.5}
+        if family[1]=='splitter' then
+          p = direction == defines.direction.north and {4,-4.5} or {4.5,-4}
+        end
+        local force = quality == 'rare' and game.forces.enemy or actor.force
+        local e = assert(actor.surface.create_entity{name=name,position=p,direction=direction,quality=quality,force=force})
+        eq(e.type,family[1]); eq(e.quality.name,quality)
+        eq(e.get_max_transport_line_index(),family[2])
+        assert(e.get_transport_line(1).insert_at_back{name='iron-plate',quality='rare',count=1})
+        assert(e.get_transport_line(2).insert_at_back{name='copper-plate',quality='uncommon',count=1})
+        local before = transport_signature(transport_snapshot(e))
+        local snapshot = ok('inspect_transport',{name=e.name,position=e.position})
+        eq(snapshot.name,name); eq(snapshot.direction,direction)
+        eq(snapshot.position.x,e.position.x); eq(snapshot.position.y,e.position.y)
+        eq(#snapshot.lanes,family[2])
+        for i,lane in ipairs(snapshot.lanes) do eq(lane.index,i) end
+        eq(transport_signature(snapshot.lanes),before)
+        eq(transport_signature(transport_snapshot(e)),before)
+        eq(e.direction,direction); eq(e.force,force); eq(e.quality.name,quality)
+        assert(carried.is_empty())
+        e.destroy()
+      end end
+    end
+  end)
+  test('transport-invalid-targets-and-bounds', function()
+    local args = {name=chest.name,position=chest.position}
+    reject('unsupported_transport','inspect_transport',args)
+    local ghost = assert(actor.surface.create_entity{name='entity-ghost',inner_name='transport-belt',position={4.5,-4.5},force=actor.force})
+    eq(ghost.ghost_name,'transport-belt')
+    reject('unsupported_transport','inspect_transport',{name='entity-ghost',position=ghost.position})
+    assert(ghost.valid); ghost.destroy()
+    reject('invalid_argument','inspect_transport',{name='unknown-native-transport-prototype',position={x=4.5,y=-4.5}})
+    reject('not_found','inspect_transport',{name='fast-splitter',position={x=4,y=-4.5}})
+    reject('out_of_range','inspect_transport',{name='express-transport-belt',position={x=65,y=0}})
+    assert(carried.is_empty()); assert(source.is_empty())
+  end)
   test('exact-quality-and-legacy', function()
     empty_items()
     for _, quality in ipairs{'normal', 'uncommon', 'rare', 'epic', 'legendary'} do

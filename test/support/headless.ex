@@ -98,6 +98,15 @@ defmodule FactorioControl.TestHeadless do
     end
   end
 
+  def replay_source("InspectTransport") do
+    """
+    match perform InspectTransport(input.request) {
+      Ok(s) -> {{accepted: True({}), name: s.name, direction: s.direction, lanes: s.lanes, error: ""}}
+      Error(e) -> {{accepted: False({}), name: "", direction: 0, lanes: [], error: e}}
+    }
+    """
+  end
+
   def replay_source("InspectEntity"), do: observation_source("InspectEntity", "entity")
   def replay_source("InspectMachine"), do: observation_source("InspectMachine", "machine")
 

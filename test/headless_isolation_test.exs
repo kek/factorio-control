@@ -94,7 +94,8 @@ defmodule FactorioControl.HeadlessIsolationTest do
        %{"name" => "assembling-machine-2", "position" => position, "recipe" => "iron-gear-wheel"}},
       {"SetChestLimit", %{"name" => "iron-chest", "position" => position, "slots" => 1}},
       {"InspectEntity", %{"name" => "assembling-machine-2", "position" => position}},
-      {"InspectMachine", %{"name" => "assembling-machine-2", "position" => position}}
+      {"InspectMachine", %{"name" => "assembling-machine-2", "position" => position}},
+      {"InspectTransport", %{"name" => "fast-transport-belt", "position" => position}}
     ]
 
     for {effect, request} <- requests do
@@ -108,12 +109,14 @@ defmodule FactorioControl.HeadlessIsolationTest do
            "data" => %{
              "count" => 1,
              "quality" => request["quality"] || "normal",
-             "name" => "assembling-machine-2",
+             "name" => request["name"] || request["entity"],
              "type" => "assembling-machine",
              "position" => %{"x" => 0.5, "y" => 0.5},
              "health" => 100,
              "max_health" => 100,
-             "modules" => modules
+             "modules" => modules,
+             "direction" => 12,
+             "lanes" => [%{"index" => 1, "items" => modules}, %{"index" => 2, "items" => %{}}]
            }
          }}
       end
@@ -125,12 +128,25 @@ defmodule FactorioControl.HeadlessIsolationTest do
                  call: call
                )
 
-      if effect in ["InspectEntity", "InspectMachine"] do
-        assert value["modules"] == modules
-        refute Map.has_key?(value, "count")
-      else
-        assert value["count"] == if(effect == "SetRecipe", do: 0, else: 1)
-        refute Map.has_key?(value, "modules")
+      cond do
+        effect == "InspectTransport" ->
+          assert value["name"] == "fast-transport-belt"
+          assert value["direction"] == 12
+
+          assert value["lanes"] == [
+                   %{"index" => 1, "items" => modules},
+                   %{"index" => 2, "items" => []}
+                 ]
+
+          refute Map.has_key?(value, "count")
+
+        effect in ["InspectEntity", "InspectMachine"] ->
+          assert value["modules"] == modules
+          refute Map.has_key?(value, "count")
+
+        true ->
+          assert value["count"] == if(effect == "SetRecipe", do: 0, else: 1)
+          refute Map.has_key?(value, "modules")
       end
     end
   end

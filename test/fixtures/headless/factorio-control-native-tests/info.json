@@ -5,5 +5,5 @@
   "author": "Factorio Control contributors",
   "factorio_version": "2.1",
   "dependencies": ["base = 2.1.24", "quality >= 2.1.24", "factorio-control = 0.3.0"],
-  "description": "Test scenarios only. No fixture or gameplay behavior is installed in ordinary saves."
+  "description": "Private test prototypes and offline scenarios, isolated from the ordinary server mod directory."
 }

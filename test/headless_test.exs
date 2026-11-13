@@ -3,7 +3,7 @@ defmodule FactorioControl.HeadlessTest do
   alias FactorioControl.{Eyg, Server, TestHeadless}
   @moduletag :headless
   @moduletag timeout: 180_000
-  @cases ~w(exact-quality-and-legacy no-quality-substitution rare-partial-capacity partial-ammunition blueprint-metadata equipped-armor damaged-stack logistic-container-inventories machine-module-transfers inventory-permission-guards dry-fluid-capable-assembler-tiers nonempty-input-output-and-modules native-progress-and-recipe-locks fluid-residue-is-preserved unsupported-and-locked-recipes)
+  @cases ~w(transport-tiers-qualities-and-modded-prototypes transport-invalid-targets-and-bounds exact-quality-and-legacy no-quality-substitution rare-partial-capacity partial-ammunition blueprint-metadata equipped-armor damaged-stack logistic-container-inventories machine-module-transfers inventory-permission-guards dry-fluid-capable-assembler-tiers nonempty-input-output-and-modules native-progress-and-recipe-locks fluid-residue-is-preserved unsupported-and-locked-recipes)
 
   test "offline engine invariants and captured native receipts conform to typed EYG" do
     project = Path.expand("..", __DIR__)
@@ -97,7 +97,8 @@ defmodule FactorioControl.HeadlessTest do
               "set_recipe",
               "set_chest_limit",
               "inspect_entity",
-              "inspect_machine"
+              "inspect_machine",
+              "inspect_transport"
             ] do
     effect =
       %{
@@ -106,7 +107,8 @@ defmodule FactorioControl.HeadlessTest do
         "set_recipe" => "SetRecipe",
         "set_chest_limit" => "SetChestLimit",
         "inspect_entity" => "InspectEntity",
-        "inspect_machine" => "InspectMachine"
+        "inspect_machine" => "InspectMachine",
+        "inspect_transport" => "InspectTransport"
       }[method]
 
     position = args["position"]
@@ -139,8 +141,31 @@ defmodule FactorioControl.HeadlessTest do
     refute_received {^ref, :called}
     assert value["accepted"] == response["ok"], inspect(event)
 
-    if response["ok"] do
-      if method in ["inspect_entity", "inspect_machine"] do
+    cond do
+      not response["ok"] ->
+        assert value["error"] =~ response["error"]["code"]
+
+      method == "inspect_transport" ->
+        assert value["name"] == response["data"]["name"]
+        assert value["direction"] == response["data"]["direction"]
+
+        expected =
+          Enum.map(response["data"]["lanes"], fn lane ->
+            items = lane["items"]
+
+            %{
+              "index" => lane["index"],
+              "items" =>
+                if(is_list(items),
+                  do: Enum.map(items, &Map.take(&1, ["name", "quality", "count"])),
+                  else: []
+                )
+            }
+          end)
+
+        assert value["lanes"] == expected
+
+      method in ["inspect_entity", "inspect_machine"] ->
         for field <- ["inventory", "modules"] do
           native = response["data"][field]
 
@@ -151,7 +176,8 @@ defmodule FactorioControl.HeadlessTest do
 
           assert value[field] == expected
         end
-      else
+
+      true ->
         expected =
           case method do
             "set_recipe" -> 0
@@ -160,9 +186,6 @@ defmodule FactorioControl.HeadlessTest do
           end
 
         assert value["count"] == expected
-      end
-    else
-      assert value["error"] =~ response["error"]["code"]
     end
 
     true
