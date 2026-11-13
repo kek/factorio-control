@@ -270,6 +270,13 @@ ingredients only when each batch completes. Stop/timeout preserves completed
 items and consumes nothing for unfinished batches. The receipt count is produced
 items, which may differ from the requested batch count (for example belts).
 
+`InspectTransport({name,position})` reads every native line of belts, underground
+belts and splitters at any tier or entity quality, including modded prototype
+names. It reports actual direction and item qualities/counts without mutation.
+Lookup is limited to a named point within 64 tiles of the bot on generated
+terrain; ambiguous matches are rejected. Existing request/result shapes and the 8-line/256-stack-per-line
+bounds remain unchanged.
+
 `InspectEntity` also exposes pickup/drop positions and target entity names for
 inserters and mining drills. `Build` accepts any plain `item` prototype with an
 entity `place_result`, including later-tier and modded buildings. It retains

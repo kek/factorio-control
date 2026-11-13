@@ -138,6 +138,15 @@ lists. Status strings use the game's `defines.entity_status` names, with
 non-resource amounts are zero. Inventory stack records retain name, quality
 and count, without stack metadata.
 
+`InspectTransport` accepts any registered prototype name, then checks the actual
+entity is a `transport-belt`, `underground-belt` or `splitter`. Tiers and entity
+qualities are unrestricted. Its named point lookup omits the quality filter,
+returns at most two candidates, and rejects ambiguity; a bare-name `find_entity`
+would implicitly select normal quality. It remains within 64 tiles on generated
+chunks of the bot's surface, reads all 1–8 native lines with at most 256 distinct
+stacks per line, and preserves its existing result shape. This lookup change is
+local to transport inspection; action targeting is unchanged.
+
 Bot health and game speed use integer thousandths to preserve fractional values.
 `active_actions` contains zero or one action. Action summaries retain partial
 progress and match the records used by `await`; `finished_tick` is zero for

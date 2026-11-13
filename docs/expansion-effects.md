@@ -11,7 +11,7 @@ graphical client's installation or connectivity.
 | Effect | Arguments | Observations |
 |---|---|---|
 | `InspectArea` | `{position:{x2,y2},radius}` | Generated terrain tiles (`x,y` are integer tile indices), water flags, up to 100 non-resource entities with force/health, entity `truncated` and `tiles_complete`. Radius 1–8, center within 64 tiles of the bot. Does not generate chunks. |
-| `InspectTransport` | `{name,position}` | Read-only normal-quality base `transport-belt`, `underground-belt`, or `splitter` on the bot's surface, within 64 tiles at a generated position. Returns `{tick,name,x_milli,y_milli,direction,lanes:[{index,items:[{name,quality,count}]}]}`. Direction is the actual integer `defines.direction` value. All real transport lines (1-based indices from `get_max_transport_line_index`, at most 8), including underground and splitter lines, are reported separately, even when empty; item qualities/counts are preserved. Errors propagate, never treated as empty lines. No inventory or entity state is changed. |
+| `InspectTransport` | `{name,position}` | Read-only inspection of native `transport-belt`, `underground-belt`, or `splitter` entity types at any tier/quality or modded prototype name on the bot's surface, within 64 tiles at a generated position. Returns `{tick,name,x_milli,y_milli,direction,lanes:[{index,items:[{name,quality,count}]}]}`. Direction is the actual integer `defines.direction` value. All real transport lines (1-based indices from `get_max_transport_line_index`, at most 8), including underground and splitter lines, are reported separately, even when empty; item qualities/counts are preserved. Errors propagate, never treated as empty lines. No inventory or entity state is changed. |
 | `InspectWater` | `{radius}` | Up to 200 generated water-collision tiles within 1–64 tiles of the bot, plus truncation. A truncated result does not identify the globally nearest shore. |
 | `InspectTechnology` | `{name}` | Enabled/researched state, prerequisites, science ingredients/cost, current progress and normal craft/mining trigger requirements. |
 | `InspectMachine` | `{name,position}` | Health, status, recipe, energy/network, separate input/output/fuel/ammo/storage/module inventories and fluid amounts/temperatures. Friendly inventories only; known position within 64 tiles of the bot. |
@@ -24,6 +24,13 @@ fluids, temperature, research progress and health also use integer thousandths.
 and [`LuaTransportLine.get_contents`](https://lua-api.factorio.com/2.1.24/classes/LuaTransportLine.html#get_contents)
 (array of `ItemWithQualityCount`), bounded to 256 distinct stacks per line.
 An unsupported line count or contents bound fails rather than truncating.
+Targets use a named point query without a quality filter, capped at two matches:
+`find_entity` with a bare name would implicitly select normal quality in 2.1.
+Ambiguous targets are rejected instead of arbitrarily selected. Prototype names
+must be registered, and actual entity types are checked before transport API
+access, so ghosts or unrelated entities cannot masquerade as belts. No name/tier
+allowlist is used. Other effects retain their existing target lookup behavior.
+The request and result shapes are unchanged; item qualities remain in lane records.
 Headless deployment and typed EYG probes confirmed 2 belt lines, 4 underground
 lines and all 8 splitter lines. It was then used to trace live copper, coal and
 ammunition flow; see `scenarios/resupply/`.

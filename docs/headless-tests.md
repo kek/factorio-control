@@ -26,8 +26,8 @@ explicit test argument are checked before fixture creation.
 It invokes only `--test-scenario factorio-control-native-tests/integration`, not
 `--start-server`, `--test-save`, `--start-server-load-latest` or `scripts/server`.
 No network listener, RCON connection, save path, live password, `.envrc` loading or
-playing-world fixture is involved. The fixture mod has no ordinary-save control
-script and is never linked by the normal server launcher. Its seeded items,
+playing-world fixture is involved. The fixture mod has test-only data prototypes but no ordinary-save control
+script, and is never linked by the normal server launcher. Its seeded items,
 recipe unlocks and machine states exist only inside this fresh offline test.
 These are trusted test fixtures, not gameplay effects or an OS security boundary.
 
@@ -51,6 +51,11 @@ copy. Failures retain evidence too; the directory is printed before launch.
 The scenario invokes the real `bot.request` mod interface and asserts real engine
 state, not mocked inventory behavior:
 
+- Transport inspection across base, fast and express tiers plus three genuine
+  fixture-defined transport prototypes, at all five entity qualities. Every
+  native line is reported; direction and mixed item qualities/counts are checked
+  against unchanged before/after engine snapshots. Ghosts, unrelated entities,
+  unknown prototypes, missing targets and out-of-range points are rejected.
 - Exact selection and round trips at normal, uncommon, rare, epic and legendary
   qualities; legacy normal-quality receipt compatibility.
 - Missing-quality and invalid-quality rejection without substitution.
@@ -80,7 +85,7 @@ production mod.
 
 Each native method request and real response is recorded in
 `script-output/native-effects.jsonl`. After the engine exits, the Elixir test
-replays transfer, recipe, chest-limit and inventory-inspection receipts through
+replays transfer, recipe, chest-limit, inventory-inspection and transport receipts through
 actual typed EYG programs,
 asserting exact request equivalence, acceptance/errors, bounded moved counts and
 quality acknowledgement. Every replay has its own `.eyg` source and JSONL trace.
