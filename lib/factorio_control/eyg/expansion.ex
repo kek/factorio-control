@@ -157,9 +157,9 @@ defmodule FactorioControl.Eyg.Expansion do
     end
   end
 
-  def handle("InspectTransport", %{"name" => name, "position" => pos}, call, _)
-      when name in ["transport-belt", "underground-belt", "splitter"] do
-    with {:ok, pos} <- position(pos),
+  def handle("InspectTransport", %{"name" => name, "position" => pos}, call, _) do
+    with :ok <- name(name),
+         {:ok, pos} <- position(pos),
          {:ok, r} <- invoke(call, :inspect_transport, %{"name" => name, "position" => pos}) do
       t = r["data"]
 

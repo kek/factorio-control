@@ -23,12 +23,22 @@ function M.register(methods, ctx)
     -- 2.1 replaced prototype.max_health with a quality-aware method.
     return e.prototype.get_max_health(e.quality) or 0
   end
-  local function target(a)
+  local function target(a, any_quality)
     args(a)
     local c, p = ctx.character(), position(a.position)
     nearby(c, p)
     check(generated(c.surface, p), 'not_generated', 'position is not generated')
-    local e = c.surface.find_entity(name(a.name), p)
+    local requested, e = name(a.name), nil
+    if any_quality then
+      -- find_entity(string, position) implicitly selects normal quality in 2.1.
+      -- A named point query without a quality filter sees all qualities; cap it
+      -- at two matches and reject ambiguity instead of choosing an arbitrary one.
+      local found = c.surface.find_entities_filtered{name=requested,position=p,limit=2}
+      check(#found < 2, 'ambiguous_target', 'more than one matching entity at position')
+      e = found[1]
+    else
+      e = c.surface.find_entity(requested, p)
+    end
     check(e and e.valid, 'not_found', 'entity not found at position')
     return c, e
   end
@@ -71,11 +81,11 @@ function M.register(methods, ctx)
 
   methods.inspect_transport = function(a)
     args(a)
+    local requested = name(a.name)
+    check(prototypes.entity[requested], 'invalid_argument', 'unknown entity prototype')
+    local _, e = target(a, true)
     local allowed = {['transport-belt'] = true, ['underground-belt'] = true, splitter = true}
-    check(allowed[name(a.name)], 'unsupported_transport', 'expected a base belt, underground-belt or splitter')
-    local _, e = target(a)
-    check(allowed[e.name] and e.type == e.name and e.quality.name == 'normal',
-      'unsupported_transport', 'expected normal-quality base transport')
+    check(allowed[e.type], 'unsupported_transport', 'expected a belt, underground-belt or splitter entity type')
     -- 2.1.24: query the actual maximum, including underground/ splitters' extra lines.
     -- Never assume that every entity has only the two visible belt lanes.
     local count = integer(e.get_max_transport_line_index(), 'transport line count', 1, 8)

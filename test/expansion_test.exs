@@ -110,7 +110,16 @@ defmodule FactorioControl.ExpansionTest do
   end
 
   test "transport inspection has a typed read-only per-line contract" do
-    for {name, count} <- [{"transport-belt", 2}, {"underground-belt", 4}, {"splitter", 8}] do
+    for {name, count} <- [
+          {"transport-belt", 2},
+          {"underground-belt", 4},
+          {"splitter", 8},
+          {"fast-transport-belt", 2},
+          {"express-underground-belt", 4},
+          {"turbo-splitter", 8},
+          {"modded-belt", 2},
+          {"modded-splitter", 8}
+        ] do
       call = fn :inspect_transport,
                 %{"name" => ^name, "position" => %{"x" => 1.5, "y" => -2.0}} ->
         ok(%{
@@ -136,6 +145,7 @@ defmodule FactorioControl.ExpansionTest do
 
       assert {:ok, %{"ok" => true, "value" => t}, trace} = run(source, ["InspectTransport"], call)
       assert t["name"] == name
+      assert Enum.sort(Map.keys(t)) == ~w(direction lanes name tick x_milli y_milli)
       assert t["tick"] == 100 and t["direction"] == 12
       assert t["x_milli"] == 1500 and t["y_milli"] == -2000
       assert length(t["lanes"]) == count
@@ -151,7 +161,7 @@ defmodule FactorioControl.ExpansionTest do
 
   test "transport rejects invalid inputs before the backend and preserves backend errors" do
     for args <- [
-          %{"name" => "fast-transport-belt", "position" => %{"x2" => 0, "y2" => 0}},
+          %{"name" => String.duplicate("n", 101), "position" => %{"x2" => 0, "y2" => 0}},
           %{"name" => "", "position" => %{"x2" => 0, "y2" => 0}},
           %{"name" => "splitter", "position" => %{"x2" => 0.5, "y2" => 0}},
           %{"name" => "splitter", "position" => %{"x2" => 2_000_001, "y2" => 0}}
@@ -162,7 +172,15 @@ defmodule FactorioControl.ExpansionTest do
 
     args = %{"name" => "splitter", "position" => %{"x2" => 0, "y2" => 0}}
 
-    for code <- ["out_of_range", "not_found", "unsupported_transport", "internal_error"] do
+    for code <- [
+          "out_of_range",
+          "not_found",
+          "ambiguous_target",
+          "invalid_argument",
+          "not_generated",
+          "unsupported_transport",
+          "internal_error"
+        ] do
       assert {:error, message} =
                Eyg.handle(
                  "InspectTransport",
