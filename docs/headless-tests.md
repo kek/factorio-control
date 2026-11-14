@@ -56,6 +56,12 @@ state, not mocked inventory behavior:
   native line is reported; direction and mixed item qualities/counts are checked
   against unchanged before/after engine snapshots. Ghosts, unrelated entities,
   unknown prototypes, missing targets and out-of-range points are rejected.
+- Entity/machine diagnostics across all five entity qualities: chest/logistic
+  storage, machine inputs/outputs/modules, and quality-scaled health. Queries
+  preserve contents/state and do not broaden mutation targeting.
+- Inspection ambiguity and enemy-inventory guards, reach-independent entity
+  inspection versus the machine inspector's 64-tile limit, and NPC/player-owned
+  corpse privacy with off-grid proximity lookup.
 - Exact selection and round trips at normal, uncommon, rare, epic and legendary
   qualities; legacy normal-quality receipt compatibility.
 - Missing-quality and invalid-quality rejection without substitution.
@@ -87,8 +93,8 @@ Each native method request and real response is recorded in
 `script-output/native-effects.jsonl`. After the engine exits, the Elixir test
 replays transfer, recipe, chest-limit, inventory-inspection and transport receipts through
 actual typed EYG programs,
-asserting exact request equivalence, acceptance/errors, bounded moved counts and
-quality acknowledgement. Every replay has its own `.eyg` source and JSONL trace.
+asserting exact request equivalence, acceptance/errors, bounded moved counts,
+quality acknowledgement, returned coordinates and inventory contents. Every replay has its own `.eyg` source and JSONL trace.
 
 This checks the engine/mod boundary and native-receipt compatibility with the
 production EYG host. It is **not** a simultaneous EYG-to-RCON-to-engine test;

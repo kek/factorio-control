@@ -44,7 +44,7 @@ Success responses are `{ok = true, tick = game.tick, data = ...}`. Errors are `{
 | --- | --- | --- |
 | `spawn` | Optional `position: {x,y}`, `surface` (default `nauvis`) | Creates an empty player-force character at a noncolliding position within 16 tiles; returns the existing living bot on repeat. Explicit spawn after death creates a replacement without recovering lost inventory. |
 | `inspect` | Optional `radius` (0–64, default 16), `name` entity filter | Position, health, inventory, active action, and up to 200 nearby entity summaries with a truncation flag. Friendly machines include fuel/output; furnaces include input. |
-| `inspect_entity` | `name`, `position` | A single entity lookup on the bot's surface, independent of reach. Friendly entities expose symbolic `status_name`, inventories and machine input/output where applicable; numeric `status` remains available. Missing entities return `not_found`. |
+| `inspect_entity` | `name`, `position` | A bounded all-quality named-point lookup on the bot's surface, independent of reach; multiple matches are rejected. Friendly entities expose symbolic `status_name`, inventories and machine input/output where applicable; numeric `status` remains available. Missing entities return `not_found`. |
 | `inspect_simulation` | None | Game speed, `tick_paused`, connected player count and base version, without requiring a bot character. |
 | `inspect_recipe` | `name` | Enabled recipe, categories, ingredient/product quantities and directly affordable batches. |
 | `craft` | `recipe`, `count` (1–100), `timeout_ticks` | Timed recipe batches consuming direct ingredients; reports produced item count and stops at completion/deadline. |
@@ -124,7 +124,10 @@ granting any mutations:
 
 `InspectBot` and `InspectResources` use the existing bounded `inspect` method;
 the resource query applies a name filter before the 200-entity limit.
-`InspectEntity` uses the dedicated single-entity mod lookup. Inserters and drills also expose pickup/drop positions
+`InspectEntity` uses a dedicated named-point mod lookup across all qualities,
+capped at two candidates with explicit ambiguity rejection. If no point match is
+found for a character corpse, the existing 0.4-tile proximity lookup is retained,
+also capped at two; player-owned corpse inventories remain excluded. Inserters and drills also expose pickup/drop positions
 and target names for checking material flow. It can inspect
 known locations anywhere on the bot's current surface, matching the earlier
 administrator diagnostics, but cannot execute arbitrary Lua. Inventories are
@@ -144,8 +147,9 @@ qualities are unrestricted. Its named point lookup omits the quality filter,
 returns at most two candidates, and rejects ambiguity; a bare-name `find_entity`
 would implicitly select normal quality. It remains within 64 tiles on generated
 chunks of the bot's surface, reads all 1–8 native lines with at most 256 distinct
-stacks per line, and preserves its existing result shape. This lookup change is
-local to transport inspection; action targeting is unchanged.
+stacks per line, and preserves its existing result shape. `InspectMachine` uses the same bounded all-quality point lookup while preserving
+its generated-position and 64-tile limits. `InspectEntity` remains reach-independent.
+These read-only lookup changes leave mutation targeting unchanged.
 
 Bot health and game speed use integer thousandths to preserve fractional values.
 `active_actions` contains zero or one action. Action summaries retain partial

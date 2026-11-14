@@ -14,7 +14,7 @@ graphical client's installation or connectivity.
 | `InspectTransport` | `{name,position}` | Read-only inspection of native `transport-belt`, `underground-belt`, or `splitter` entity types at any tier/quality or modded prototype name on the bot's surface, within 64 tiles at a generated position. Returns `{tick,name,x_milli,y_milli,direction,lanes:[{index,items:[{name,quality,count}]}]}`. Direction is the actual integer `defines.direction` value. All real transport lines (1-based indices from `get_max_transport_line_index`, at most 8), including underground and splitter lines, are reported separately, even when empty; item qualities/counts are preserved. Errors propagate, never treated as empty lines. No inventory or entity state is changed. |
 | `InspectWater` | `{radius}` | Up to 200 generated water-collision tiles within 1–64 tiles of the bot, plus truncation. A truncated result does not identify the globally nearest shore. |
 | `InspectTechnology` | `{name}` | Enabled/researched state, prerequisites, science ingredients/cost, current progress and normal craft/mining trigger requirements. |
-| `InspectMachine` | `{name,position}` | Health, status, recipe, energy/network, separate input/output/fuel/ammo/storage/module inventories and fluid amounts/temperatures. Friendly inventories only; known position within 64 tiles of the bot. |
+| `InspectMachine` | `{name,position}` | Health, status, recipe, energy/network, separate input/output/fuel/ammo/storage/module inventories and fluid amounts/temperatures. All entity qualities accepted, with ambiguity rejection. Friendly inventories only; known generated position within 64 tiles of the bot. |
 
 Input positions use integer half tiles. Entity observations use thousandths;
 fluids, temperature, research progress and health also use integer thousandths.
@@ -29,7 +29,11 @@ Targets use a named point query without a quality filter, capped at two matches:
 Ambiguous targets are rejected instead of arbitrarily selected. Prototype names
 must be registered, and actual entity types are checked before transport API
 access, so ghosts or unrelated entities cannot masquerade as belts. No name/tier
-allowlist is used. Other effects retain their existing target lookup behavior.
+allowlist is used. `InspectMachine` uses the same all-quality lookup, with its
+existing 64-tile/generated-position limits. The core `InspectEntity` uses a
+bounded all-quality point query without an interaction-reach limit, retaining
+its 0.4-tile corpse fallback and player-owned corpse inventory exclusion.
+Visibility rules and mutation target lookup behavior are unchanged.
 The request and result shapes are unchanged; item qualities remain in lane records.
 Headless deployment and typed EYG probes confirmed 2 belt lines, 4 underground
 lines and all 8 splitter lines. It was then used to trace live copper, coal and

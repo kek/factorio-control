@@ -240,7 +240,7 @@ the server; your standalone client needs the same mod when joining.
 | Effect | Available information |
 | --- | --- |
 | `InspectBot({})` | Position, health, surface, inventory, and active action (if any). |
-| `InspectEntity({name,position:{x2,y2}})` | One entity on the bot's surface, including native `direction`, `supports_direction`, `rotatable`, `minable`, symbolic status (`full_output`, `no_fuel`, etc.), resource amount, and separate main, fuel, input, output and module inventories where supported. The lookup does not require the bot to be within interaction reach. |
+| `InspectEntity({name,position:{x2,y2}})` | One entity on the bot's surface, including native `direction`, `supports_direction`, `rotatable`, `minable`, symbolic status (`full_output`, `no_fuel`, etc.), resource amount, and separate main, fuel, input, output and module inventories where supported. The bounded named-point lookup accepts every entity quality and rejects ambiguity; it does not require the bot to be within interaction reach. |
 | `InspectResources({item,radius})` | Positions and remaining quantities for up to 200 matching resource tiles within 0–64 tiles of the bot, plus a truncation flag. |
 | `InspectAction({id})` | Action status, partial collected count, target, tick deadlines, and error details. IDs come from action receipts in the trace; only the latest 64 actions are retained. |
 | `InspectSimulation({})` | Tick, game speed, explicit pause flag, connected player count, and game version. Works even before spawning a bot. |
@@ -276,6 +276,13 @@ names. It reports actual direction and item qualities/counts without mutation.
 Lookup is limited to a named point within 64 tiles of the bot on generated
 terrain; ambiguous matches are rejected. Existing request/result shapes and the 8-line/256-stack-per-line
 bounds remain unchanged.
+
+`InspectEntity` and `InspectMachine` also use bounded, all-quality named-point
+lookups and reject ambiguous matches. `InspectEntity` remains independent of
+interaction reach and keeps its narrow corpse proximity lookup; `InspectMachine`
+retains its 64-tile/generated-position limits. Friendly inventory visibility and
+player-owned corpse inventory exclusion are unchanged, as are result shapes and
+mutation targeting.
 
 `InspectEntity` also exposes pickup/drop positions and target entity names for
 inserters and mining drills. `Build` accepts any plain `item` prototype with an
