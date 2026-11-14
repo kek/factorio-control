@@ -165,6 +165,100 @@ local function run()
     reject('out_of_range','inspect_transport',{name='express-transport-belt',position={x=65,y=0}})
     assert(carried.is_empty()); assert(source.is_empty())
   end)
+  test('quality-agnostic-entity-and-machine-inspection', function()
+    for _, name in ipairs{'iron-chest','storage-chest','assembling-machine-2'} do
+      for _, quality in ipairs{'normal','uncommon','rare','epic','legendary'} do
+        local e=assert(actor.surface.create_entity{name=name,position={4.5,-4.5},quality=quality,force=actor.force})
+        local inv
+        if e.type=='assembling-machine' then
+          assert(not next(e.set_recipe('iron-gear-wheel','normal')))
+          inv=e.get_inventory(defines.inventory.crafter_input)
+          eq(inv.insert{name='iron-plate',count=1},1)
+          assert(e.get_output_inventory()[1].set_stack{name='iron-gear-wheel',count=1})
+          eq(e.get_module_inventory().insert{name='speed-module',quality='rare',count=1},1)
+        else
+          inv=e.get_inventory(defines.inventory.chest)
+          eq(inv.insert{name='iron-plate',quality='rare',count=5},5)
+        end
+        e.health=e.health-1
+        local health, max_health=e.health,e.prototype.get_max_health(e.quality)
+        for _, method in ipairs{'inspect_entity','inspect_machine'} do
+          local s=ok(method,{name=e.name,position=e.position})
+          eq(s.name,e.name);eq(s.position.x,e.position.x);eq(s.position.y,e.position.y)
+          if e.type=='assembling-machine' then
+            eq(s.input[1].count,1);eq(s.output[1].count,1)
+            eq(s.modules[1].quality,'rare');eq(s.modules[1].count,1)
+            if method=='inspect_machine' then eq(s.recipe,'iron-gear-wheel') end
+          else
+            eq(s.inventory[1].count,5);eq(s.inventory[1].quality,'rare')
+          end
+          if method=='inspect_machine' then eq(s.health,health);eq(s.max_health,max_health) end
+        end
+        if quality~='normal' then
+          if e.type=='assembling-machine' then
+            reject('not_found','set_recipe',recipe_args(e,'copper-cable'))
+          else
+            local method,args=transfer('take','iron-plate','rare',1,false,e)
+            reject('invalid_target',method,args)
+          end
+        end
+        eq(e.health,health);eq(e.quality.name,quality);eq(e.force,actor.force)
+        eq(inv.get_item_count{name='iron-plate',quality=e.type=='assembling-machine' and 'normal' or 'rare'},e.type=='assembling-machine' and 1 or 5)
+        assert(carried.is_empty());e.destroy()
+      end
+    end
+  end)
+  test('inspection-privacy-ambiguity-and-range', function()
+    local enemy=assert(actor.surface.create_entity{name='assembling-machine-2',position={4.5,-4.5},quality='legendary',force=game.forces.enemy})
+    assert(not next(enemy.set_recipe('iron-gear-wheel','normal')))
+    eq(enemy.get_inventory(defines.inventory.crafter_input).insert{name='iron-plate',count=1},1)
+    eq(enemy.get_module_inventory().insert{name='speed-module',quality='rare',count=1},1)
+    local s=ok('inspect_entity',{name=enemy.name,position=enemy.position})
+    eq(s.inventory,nil);eq(s.input,nil);eq(s.output,nil);eq(s.modules,nil)
+    s=ok('inspect_machine',{name=enemy.name,position=enemy.position})
+    eq(#s.inventory,0);eq(#s.input,0);eq(#s.output,0);eq(#s.modules,0);eq(s.recipe,'')
+    eq(enemy.get_module_inventory().get_item_count{name='speed-module',quality='rare'},1)
+    enemy.destroy()
+    local first=assert(actor.surface.create_entity{name='iron-chest',position={4.5,-4.5},force=actor.force})
+    local second=assert(actor.surface.create_entity{name='iron-chest',position={4.5,-4.5},quality='rare',force=actor.force})
+    assert(first.valid and second.valid)
+    eq(#actor.surface.find_entities_filtered{name='iron-chest',position=first.position,limit=2},2)
+    reject('ambiguous_target','inspect_entity',{name='iron-chest',position=first.position})
+    reject('ambiguous_target','inspect_machine',{name='iron-chest',position=first.position})
+    first.destroy();second.destroy()
+    actor.surface.request_to_generate_chunks({80,0},0);actor.surface.force_generate_chunk_requests()
+    local far=assert(actor.surface.create_entity{name='iron-chest',position={80.5,0.5},quality='legendary',force=actor.force})
+    eq(far.get_inventory(defines.inventory.chest).insert{name='iron-plate',quality='rare',count=3},3)
+    s=ok('inspect_entity',{name=far.name,position=far.position})
+    eq(s.inventory[1].count,3);eq(s.position.x,80.5)
+    reject('out_of_range','inspect_machine',{name=far.name,position=far.position})
+    far.destroy()
+    for _, method in ipairs{'inspect_entity','inspect_machine'} do
+      reject('invalid_argument',method,{name='unknown-native-inspection-prototype',position={x=4.5,y=-4.5}})
+      reject('not_found',method,{name='iron-chest',position={x=4.5,y=-4.5}})
+    end
+    assert(carried.is_empty())
+  end)
+  test('corpse-inspection-privacy-and-proximity', function()
+    local p={x=6.25,y=-1.25}
+    local npc=assert(actor.surface.create_entity{name='character',position=p,force=actor.force})
+    eq(npc.get_main_inventory().insert{name='iron-plate',quality='rare',count=3},3)
+    assert(npc.die())
+    local corpses=actor.surface.find_entities_filtered{name='character-corpse',position=p,radius=0.1,limit=2}
+    eq(#corpses,1);local corpse=corpses[1]
+    assert(not game.get_player(corpse.character_corpse_player_index))
+    corpse.force=actor.force -- Also exercise the friendly-force privacy branch.
+    local point={x=6.5,y=-1}
+    local s=ok('inspect_entity',{name=corpse.name,position=point})
+    eq(s.inventory[1].count,3);eq(s.inventory[1].quality,'rare')
+    eq(s.position.x,corpse.position.x);eq(s.position.y,corpse.position.y)
+    assert(game.get_player(1),'offline runner must supply a test player')
+    corpse.character_corpse_player_index=1
+    s=ok('inspect_entity',{name=corpse.name,position=point})
+    eq(s.inventory,nil);eq(s.output and #s.output or 0,0)
+    eq(corpse.get_inventory(defines.inventory.character_corpse).get_item_count{name='iron-plate',quality='rare'},3)
+    corpse.destroy();assert(carried.is_empty())
+  end)
   test('exact-quality-and-legacy', function()
     empty_items()
     for _, quality in ipairs{'normal', 'uncommon', 'rare', 'epic', 'legendary'} do

@@ -123,8 +123,12 @@ defmodule FactorioControl.TestHeadless do
   defp observation_source(effect, field) do
     """
     match perform #{effect}(input.request) {
-      Ok(s) -> {{accepted: True({}), inventory: s.#{field}.inventory, modules: s.#{field}.modules, error: ""}}
-      Error(e) -> {{accepted: False({}), inventory: [], modules: [], error: e}}
+      Ok(s) -> {{accepted: True({}), name: s.#{field}.name, type: s.#{field}.type,
+        x_milli: s.#{field}.x_milli, y_milli: s.#{field}.y_milli,
+        inventory: s.#{field}.inventory, modules: s.#{field}.modules,
+        input: s.#{field}.input, output: s.#{field}.output, fuel: s.#{field}.fuel, error: ""}}
+      Error(e) -> {{accepted: False({}), name: "", type: "", x_milli: 0, y_milli: 0,
+        inventory: [], modules: [], input: [], output: [], fuel: [], error: e}}
     }
     """
   end

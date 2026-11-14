@@ -3,7 +3,7 @@ defmodule FactorioControl.HeadlessTest do
   alias FactorioControl.{Eyg, Server, TestHeadless}
   @moduletag :headless
   @moduletag timeout: 180_000
-  @cases ~w(transport-tiers-qualities-and-modded-prototypes transport-invalid-targets-and-bounds exact-quality-and-legacy no-quality-substitution rare-partial-capacity partial-ammunition blueprint-metadata equipped-armor damaged-stack logistic-container-inventories machine-module-transfers inventory-permission-guards dry-fluid-capable-assembler-tiers nonempty-input-output-and-modules native-progress-and-recipe-locks fluid-residue-is-preserved unsupported-and-locked-recipes)
+  @cases ~w(transport-tiers-qualities-and-modded-prototypes transport-invalid-targets-and-bounds quality-agnostic-entity-and-machine-inspection inspection-privacy-ambiguity-and-range corpse-inspection-privacy-and-proximity exact-quality-and-legacy no-quality-substitution rare-partial-capacity partial-ammunition blueprint-metadata equipped-armor damaged-stack logistic-container-inventories machine-module-transfers inventory-permission-guards dry-fluid-capable-assembler-tiers nonempty-input-output-and-modules native-progress-and-recipe-locks fluid-residue-is-preserved unsupported-and-locked-recipes)
 
   test "offline engine invariants and captured native receipts conform to typed EYG" do
     project = Path.expand("..", __DIR__)
@@ -166,7 +166,12 @@ defmodule FactorioControl.HeadlessTest do
         assert value["lanes"] == expected
 
       method in ["inspect_entity", "inspect_machine"] ->
-        for field <- ["inventory", "modules"] do
+        assert value["name"] == response["data"]["name"]
+        assert value["type"] == response["data"]["type"]
+        assert value["x_milli"] == round(response["data"]["position"]["x"] * 1000)
+        assert value["y_milli"] == round(response["data"]["position"]["y"] * 1000)
+
+        for field <- ["inventory", "modules", "input", "output", "fuel"] do
           native = response["data"][field]
 
           expected =
