@@ -75,12 +75,28 @@ local function reset()
     end}, ['piercing-rounds-magazine'] = {type = 'ammo'}, ['repair-pack'] = {type = 'repair-tool'}
   }
   game.tick, world, created, begin_calls, cancelled = 0, {}, {}, {}, {}
+  game.get_player = function() end
   main = inventory({['iron-plate'] = 100})
   surface = {}
   surface.find_entity = function(name, pos)
     for _, e in ipairs(world) do
-      if e.name == name and e.position.x == pos.x and e.position.y == pos.y then return e end
+      if e.name == name and e.position.x == pos.x and e.position.y == pos.y and
+          (not e.quality or e.quality.name == 'normal') then return e end
     end
+  end
+  surface.find_entities_filtered = function(f)
+    assert(f.name and f.position and f.limit == 2 and not f.quality and not f.area)
+    local rows = {}
+    for _, e in ipairs(world) do
+      local dx, dy = e.position.x - f.position.x, e.position.y - f.position.y
+      local hit = f.radius and dx*dx + dy*dy <= f.radius*f.radius or
+        (not f.radius and dx == 0 and dy == 0)
+      if e.valid and e.name == f.name and hit then
+        rows[#rows + 1] = e
+        if #rows == f.limit then break end
+      end
+    end
+    return rows
   end
   surface.can_place_entity = function(_) return true end
   c = {valid = true, position = {x = 0, y = 0}, force = {name = 'player', recipes = {}},
@@ -834,6 +850,54 @@ test('count-only placement cannot refresh damaged building items', function()
   main[1]={valid_for_read=true,name='iron-chest',quality={name='normal'},health=.5}
   denied('unsupported_stack','build',{item='iron-chest',position={x=.5,y=.5}})
   eq(main.items['iron-chest'],10);eq(#created,0)
+end)
+
+test('InspectEntity finds all qualities without changing mutation lookup or inventory state', function()
+  for _, quality in ipairs{'normal','uncommon','rare','epic','legendary'} do
+    world={}
+    local e=entity('iron-chest','container')
+    e.quality={name=quality}; prototypes.entity[e.name]=e.prototype
+    local stored=native_inventory({{name='iron-plate',quality={name='rare'},count=5}})
+    e.get_inventory=function(id) eq(id,defines.inventory.chest);return stored end
+    local observed=ok('inspect_entity',{name=e.name,position=e.position})
+    eq(observed.inventory[1].count,5); eq(observed.inventory[1].quality,'rare')
+    eq(stored[1].count,5);eq(e.quality.name,quality)
+    if quality ~= 'normal' then
+      denied('invalid_target','transfer_quality',{entity=e.name,position=e.position,inventory='main',direction='take',item='iron-plate',quality='rare',count=1})
+      eq(stored[1].count,5)
+    end
+    e.position={x=100,y=0} -- InspectEntity remains independent of interaction reach.
+    eq(ok('inspect_entity',{name=e.name,position=e.position}).inventory[1].count,5)
+  end
+end)
+
+test('InspectEntity rejects ambiguous matches and missing targets without getter calls', function()
+  local first=entity('iron-chest','container')
+  prototypes.entity[first.name]=first.prototype
+  first.get_inventory=function() error('ambiguous lookup must not read inventory') end
+  local second=entity('iron-chest','container')
+  second.quality={name='rare'}
+  denied('ambiguous_target','inspect_entity',{name=first.name,position=first.position})
+  world={};denied('not_found','inspect_entity',{name=first.name,position=first.position})
+  denied('invalid_argument','inspect_entity',{name='unknown-prototype',position={x=0,y=0}})
+end)
+
+test('InspectEntity preserves narrow NPC corpse lookup and player-owned inventory exclusion', function()
+  game.get_player=function(i) if i==1 then return {index=1} end end
+  local corpse=entity('character-corpse','character-corpse',{name='neutral'})
+  corpse.position={x=1.25,y=.25};corpse.quality={name='rare'}
+  corpse.character_corpse_player_index=0;prototypes.entity[corpse.name]=corpse.prototype
+  local recovered=native_inventory({{name='iron-plate',quality={name='rare'},count=3}})
+  corpse.get_inventory=function(id) eq(id,defines.inventory.character_corpse);return recovered end
+  local a={name=corpse.name,position={x=1.5,y=.5}}
+  local observed=ok('inspect_entity',a)
+  eq(observed.inventory[1].count,3);eq(observed.position.x,1.25)
+  corpse.character_corpse_player_index=1
+  eq(ok('inspect_entity',a).inventory,nil)
+  local other=entity(corpse.name,'character-corpse',{name='neutral'})
+  other.position={x=1.5,y=.25};other.character_corpse_player_index=0
+  denied('ambiguous_target','inspect_entity',a)
+  eq(recovered[1].count,3)
 end)
 
 test('NPC corpse recovery transfers real inventory and rejects player-owned corpses', function()

@@ -158,8 +158,16 @@ local function start(kind, args)
   b.actions[a.id - 64] = nil
   return a
 end
-local function find_target(c, name, pos)
-  local e = c.surface.find_entity(name, pos)
+local function find_target(c, name, pos, any_quality)
+  local e
+  if any_quality then
+    local found = c.surface.find_entities_filtered{name = name, position = pos, limit = 2}
+    check(#found < 2, "ambiguous_target", "More than one matching entity at position")
+    e = found[1]
+  else
+    -- Mutation callers retain the native bare-name/normal-quality lookup.
+    e = c.surface.find_entity(name, pos)
+  end
   if not e and name == "character-corpse" then
     -- Corpses are not tile-aligned; the typed half-tile point can be up to
     -- sqrt(.25^2+.25^2) away from their exact position.
@@ -244,8 +252,9 @@ function methods.inspect_entity(args)
   check(type(args.name) == "string" and prototypes.entity[args.name],
     "invalid_argument", "A valid entity name is required")
   local pos = position(args.position)
-  -- A single lookup on the bot's surface; read-only and independent of reach.
-  local e = find_target(c, args.name, pos)
+  -- Bounded named-point lookup on this surface, across all qualities. Keep the
+  -- existing reach-independent behavior and narrow corpse fallback.
+  local e = find_target(c, args.name, pos, true)
   check(e and e.valid, "not_found", "No matching entity at position")
   return entity_summary(e)
 end

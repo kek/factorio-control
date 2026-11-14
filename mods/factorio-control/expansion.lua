@@ -25,10 +25,15 @@ function M.register(methods, ctx)
   end
   local function target(a, any_quality)
     args(a)
+    local requested
+    if any_quality then
+      requested = name(a.name)
+      check(prototypes.entity[requested], 'invalid_argument', 'unknown entity prototype')
+    end
     local c, p = ctx.character(), position(a.position)
     nearby(c, p)
     check(generated(c.surface, p), 'not_generated', 'position is not generated')
-    local requested, e = name(a.name), nil
+    local e
     if any_quality then
       -- find_entity(string, position) implicitly selects normal quality in 2.1.
       -- A named point query without a quality filter sees all qualities; cap it
@@ -37,7 +42,7 @@ function M.register(methods, ctx)
       check(#found < 2, 'ambiguous_target', 'more than one matching entity at position')
       e = found[1]
     else
-      e = c.surface.find_entity(requested, p)
+      e = c.surface.find_entity(name(a.name), p)
     end
     check(e and e.valid, 'not_found', 'entity not found at position')
     return c, e
@@ -80,9 +85,6 @@ function M.register(methods, ctx)
   end
 
   methods.inspect_transport = function(a)
-    args(a)
-    local requested = name(a.name)
-    check(prototypes.entity[requested], 'invalid_argument', 'unknown entity prototype')
     local _, e = target(a, true)
     local allowed = {['transport-belt'] = true, ['underground-belt'] = true, splitter = true}
     check(allowed[e.type], 'unsupported_transport', 'expected a belt, underground-belt or splitter entity type')
@@ -241,7 +243,7 @@ function M.register(methods, ctx)
   end
 
   methods.inspect_machine = function(a)
-    local c, e = target(a)
+    local c, e = target(a, true)
     local out = {name = e.name, type = e.type, position = point(e.position),
       status_name = ctx.status_names[e.status] or 'unknown', health = e.health or 0,
       max_health = health(e), energy = e.energy or 0, recipe = '',

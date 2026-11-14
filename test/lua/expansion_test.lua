@@ -15,12 +15,13 @@ local function position(p)
   return {x = p.x, y = p.y}
 end
 local function distance(a,b) return math.sqrt((a.x-b.x)^2+(a.y-b.y)^2) end
-local c, e, t, force, surface, busy, writes, inventories, found, generated, queries, tile_reads
+local c, e, t, force, surface, busy, writes, inventories, found, generated, queries, tile_reads, named_matches
 local function inv(items)
   return {get_contents = function() return items end, is_empty = function() return next(items) == nil end}
 end
 local function reset()
-  busy, writes, inventories, found, generated, queries, tile_reads = false, 0, {}, {}, true, 0, 0
+  busy, writes, inventories, found, generated, queries, tile_reads, named_matches = false, 0, {}, {}, true, 0, 0, nil
+  prototypes = {entity = {}}
   t = {name = 'automation', enabled = true, researched = false, prerequisites = {},
     prototype = {}, research_unit_count = 10, research_unit_energy = 30,
     research_unit_ingredients = {{name = 'automation-science-pack', amount = 1}}}
@@ -32,14 +33,24 @@ local function reset()
       assert(generated); tile_reads = tile_reads + 1
       return {name = 'water', position = {x=x,y=y}, collides_with = function(layer) assert(layer == 'water_tile'); return true end}
     end,
-    find_entities_filtered = function(f) queries = queries + 1; assert(f.area and f.limit == 101); return found end,
-    find_entity = function(n,p) assert(p.x == 1 and p.y == 0); return e and e.name == n and e or nil end}
+    find_entities_filtered = function(f)
+      queries = queries + 1
+      if f.name then
+        assert(f.position.x == 1 and f.position.y == 0 and f.limit == 2 and not f.quality and not f.radius and not f.area)
+        return named_matches or (e and e.valid and e.name == f.name and {e} or {})
+      end
+      assert(f.area and f.limit == 101); return found
+    end,
+    find_entity = function(n,p)
+      assert(p.x == 1 and p.y == 0)
+      return e and e.name == n and e.quality == 'normal' and e or nil
+    end}
   c = {position = {x=0,y=0}, force = force, surface = surface, can_reach_entity = function(_) return true end}
   e = {valid = true, name = 'assembling-machine-1', type = 'assembling-machine',
     force = force, position = {x=1,y=0}, health = 200, status = 1, energy = 42,
     quality = 'normal', recipe_locked = false, crafting_progress = 0, bonus_progress = 0,
     fluids_count = 0, get_fluid = function() error('no fluid slots expected') end,
-    prototype = {get_max_health = function(q) assert(q == 'normal'); return 300 end,
+    prototype = {get_max_health = function(q) assert(q == e.quality); return 300 end,
       crafting_categories = {crafting = true}, ingredient_count = 6, fluidbox_prototypes = {} },
     get_inventory = function(i) return inventories[i] end,
     get_fuel_inventory = function() return inventories.fuel end,
@@ -62,7 +73,10 @@ local function fails(code, fn)
   assert(not ok and type(err) == 'table' and err.code == code, 'expected ' .. code .. ', got ' .. tostring(err))
 end
 local function area(r,p) return methods.inspect_area{position = p or {x=0,y=0}, radius = r} end
-local function machine() return methods.inspect_machine{name=e.name,position={x=1,y=0}} end
+local function machine()
+  prototypes.entity[e.name]=e.prototype
+  return methods.inspect_machine{name=e.name,position={x=1,y=0}}
+end
 local function set() return methods.set_recipe{name=e.name,position={x=1,y=0},recipe='gear'} end
 local function research() return methods.research{name='automation'} end
 reset()
@@ -211,6 +225,27 @@ e.get_inventory = function() error('no-op must not touch inventories') end
 e.get_module_inventory = e.get_inventory
 e.is_crafting = function() error('no-op must not inspect craft progress') end
 assert(set().recipe == 'gear' and writes == 0)
+
+-- Read-only machine targeting sees every quality; mutation targeting stays normal-only.
+for _, quality in ipairs{'normal','uncommon','rare','epic','legendary'} do
+  reset();e.quality=quality
+  inventories[1]=inv{{name='iron-plate',quality='rare',count=3}}
+  inventories.modules=inv{{name='speed-module',quality='epic',count=1}}
+  local snapshot=machine()
+  assert(snapshot.input[1].count==3 and snapshot.modules[1].quality=='epic')
+  assert(snapshot.max_health==300 and writes==0)
+  if quality~='normal' then fails('not_found',set);assert(writes==0) end
+end
+reset();prototypes.entity[e.name]=e.prototype;named_matches={e,e}
+e.get_module_inventory=function() error('ambiguous target must not read inventory') end
+fails('ambiguous_target',machine);assert(writes==0)
+reset();prototypes.entity['known-absent']={}
+fails('not_found',function() methods.inspect_machine{name='known-absent',position={x=1,y=0}} end)
+fails('invalid_argument',function() methods.inspect_machine{name='unknown-prototype',position={x=1,y=0}} end)
+reset();e.quality='rare';prototypes.entity[e.name]=e.prototype;generated=false
+fails('not_generated',machine);assert(writes==0)
+reset();e.quality='rare';prototypes.entity[e.name]=e.prototype
+fails('out_of_range',function() methods.inspect_machine{name=e.name,position={x=65,y=0}} end)
 
 -- Empty machines can switch away from an existing recipe without clearing anything.
 reset(); e.name = 'assembling-machine-3'; e.recipe = {name='previous-recipe'}
