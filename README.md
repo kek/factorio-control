@@ -30,7 +30,13 @@ set -a; source .envrc; set +a
 mix factorio.server
 ```
 
-`mix factorio.server` owns the game process through an Elixir `Port` and streams its output. It launches `scripts/server`, which links the mod from `mods/factorio-control` into the server's mod directory and execs the game with `my-save.zip` and `server-settings.json`. These settings keep ticks advancing with no connected players. If the mod was previously disabled, enable `factorio-control` in `factorio/mods/mod-list.json` before starting.
+`mix factorio.server` owns the game process through an Elixir `Port` and streams its output.
+**To save and quit, type `q` then Enter** (`quit` then Enter also works). The
+launcher requests shutdown through the Port owner and continues displaying logs
+until Factorio actually exits. Terminal input is line-buffered; other text is
+ignored rather than forwarded as game commands.
+
+It launches `scripts/server`, which links the mod from `mods/factorio-control` into the server's mod directory and execs the game with `my-save.zip` and `server-settings.json`. These settings keep ticks advancing with no connected players. If the mod was previously disabled, enable `factorio-control` in `factorio/mods/mod-list.json` before starting.
 
 For a graphical client, install the same mod revision in the client's actual
 write-data mod directory (normally `~/.factorio/mods/factorio-control` on Linux)
@@ -57,7 +63,17 @@ FactorioControl.Server.status(server)
 FactorioControl.Server.stop(server)
 ```
 
-Use one server launcher at a time. `Server.stop/1` sends `/quit` through the Port's stdin and waits for the process to save and exit. `mix factorio.server` also handles SIGTERM for orderly shutdown. A double Ctrl-C or forced VM kill can bypass cleanup; a Port closing alone does not guarantee the OS process exits. Startup/shutdown timeouts remain visible in `Server.status/1`; no automatic server restart occurs. Server ownership is opt-in, so running client commands or tests does not launch a second game server.
+Use one server launcher at a time. `Server.stop/1` sends `/quit` through the
+Port's stdin and waits for the process to save and exit. `mix factorio.server`
+accepts `q`/`quit` plus Enter and also handles SIGTERM for orderly shutdown. Repeated quit input is ignored while a shutdown is pending.
+If shutdown times out, the console remains open and reports the unconfirmed
+state; another `q` explicitly retries. EOF leaves the server running for external
+lifecycle management. A double Ctrl-C or forced VM kill can bypass cleanup; a
+Port closing alone does not guarantee the OS process exits. At an Erlang `BREAK`
+prompt, press `c` to resume before requesting a graceful shutdown. Startup/shutdown
+timeouts remain visible in `Server.status/1`; no automatic server restart occurs.
+Server ownership is opt-in, so running client commands or tests does not launch
+a second game server.
 
 ## Control the bot
 
