@@ -1,8 +1,8 @@
 defmodule FactorioControl.ServerConsole do
-  @moduledoc "Line-buffered console for mix factorio.server; q/quit requests owned shutdown."
+  @moduledoc "Line-buffered save/quit and save/restart console for mix factorio.server."
   alias FactorioControl.Server
 
-  @help "Type q then Enter to save and quit gracefully."
+  @help "Type q then Enter to save and quit; r then Enter to save and restart."
 
   def run(server, opts \\ []) do
     input = Keyword.get(opts, :input, :stdio)
@@ -52,15 +52,29 @@ defmodule FactorioControl.ServerConsole do
         if state.stop, do: cancel(state.stop.pid, state.stop.monitor)
         if code == 0, do: :ok, else: {:error, {:exit_status, code}}
 
+      {:factorio, ^server, {:restarted, _os_pid}} ->
+        IO.puts(state.output, "Previous process exited cleanly; new Factorio process launched.")
+        stream(server, state)
+
+      {:factorio, ^server, {:restart_failed, reason}} ->
+        if state.stop, do: cancel(state.stop.pid, state.stop.monitor)
+        {:error, {:restart_failed, reason}}
+
       {:server_console_input, token, line} when token == state.token ->
         command = String.trim(line)
 
         cond do
-          command in ["q", "quit", "Q", "QUIT"] and is_nil(state.stop) ->
+          command in ["q", "quit", "Q", "QUIT"] and
+              (is_nil(state.stop) or state.stop.action == :restart) ->
+            if state.stop, do: cancel(state.stop.pid, state.stop.monitor)
             IO.puts(state.output, "Saving and stopping Factorio; waiting for process exit...")
-            stream(server, %{state | stop: start_stop(server)})
+            stream(server, %{state | stop: start_stop(server, :quit)})
 
-          command in ["q", "quit", "Q", "QUIT", ""] ->
+          command in ["r", "restart", "R", "RESTART"] and is_nil(state.stop) ->
+            IO.puts(state.output, "Saving and restarting Factorio; waiting for process exit...")
+            stream(server, %{state | stop: start_stop(server, :restart)})
+
+          command in ["q", "quit", "Q", "QUIT", "r", "restart", "R", "RESTART", ""] ->
             stream(server, state)
 
           true ->
@@ -81,15 +95,28 @@ defmodule FactorioControl.ServerConsole do
           %{tag: ^tag, monitor: monitor} ->
             Process.demonitor(monitor, [:flush])
 
-            if result != :ok do
-              IO.puts(
-                state.output,
-                "Shutdown not confirmed: #{inspect(result)}. Still waiting for Factorio; q then Enter retries explicitly."
-              )
+            case result do
+              :ok ->
+                :ok
+
+              {:error, :restart_cancelled} ->
+                IO.puts(state.output, "Restart cancelled by shutdown request.")
+
+              {:error, :could_not_start_server} ->
+                IO.puts(
+                  state.output,
+                  "Previous process exited cleanly, but the new process could not start."
+                )
+
+              _ ->
+                IO.puts(
+                  state.output,
+                  "Shutdown not confirmed: #{inspect(result)}. No automatic restart; q or r then Enter retries explicitly."
+                )
             end
 
-            # A successful stop result is not a replacement for the subscribed
-            # OS exit event. Continue streaming until that event arrives.
+            # Quit still waits for the subscribed exit event. Restart keeps
+            # streaming the new process; launch success does not imply readiness.
             stream(server, %{state | stop: nil})
 
           _ ->
@@ -126,7 +153,7 @@ defmodule FactorioControl.ServerConsole do
     end
   end
 
-  defp start_stop(server) do
+  defp start_stop(server, action) do
     parent = self()
     tag = make_ref()
 
@@ -134,7 +161,10 @@ defmodule FactorioControl.ServerConsole do
       spawn_monitor(fn ->
         result =
           try do
-            Server.stop(server)
+            case action do
+              :quit -> Server.stop(server)
+              :restart -> Server.restart(server)
+            end
           catch
             :exit, reason -> {:error, {:owner_exit, reason}}
           end
@@ -142,7 +172,7 @@ defmodule FactorioControl.ServerConsole do
         send(parent, {:server_console_stop_result, tag, result})
       end)
 
-    %{pid: pid, monitor: monitor, tag: tag}
+    %{pid: pid, monitor: monitor, tag: tag, action: action}
   end
 
   defp cancel(pid, monitor) do

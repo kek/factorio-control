@@ -6,7 +6,10 @@ defmodule FactorioControl.Server do
   Output is streamed to subscribers and the last 64 KiB retained for inspection.
   Shutdown sends /quit on stdin and waits for an actual OS exit status. A timeout
   leaves the Port owned and inspectable rather than silently orphaning the game.
-  This is opt-in; starting the application or running tests never starts Factorio.
+  Restart keeps this owner alive and relaunches the same configuration only after
+  a clean OS exit. Stop cancels pending restart intent; failures never retry
+  automatically. This is opt-in; starting the application or running tests never
+  starts Factorio.
   """
   use GenServer, restart: :temporary
   require Logger
@@ -19,6 +22,9 @@ defmodule FactorioControl.Server do
   def status(server), do: GenServer.call(server, :status)
   def subscribe(server, pid \\ self()), do: GenServer.call(server, {:subscribe, pid})
   def stop(server), do: GenServer.call(server, :stop, :infinity)
+
+  @doc "Save and stop, then launch the same server again only after a clean OS exit."
+  def restart(server), do: GenServer.call(server, :restart, :infinity)
 
   def await_ready(server, timeout \\ 10_000) do
     await_until(server, System.monotonic_time(:millisecond) + timeout)
@@ -73,37 +79,30 @@ defmodule FactorioControl.Server do
     password = Keyword.get(opts, :password) || System.get_env("FACTORIO_RCON_PASSWORD")
 
     if is_binary(password) and password != "" do
-      try do
-        port =
-          Port.open({:spawn_executable, to_charlist(executable)}, [
-            :binary,
-            :exit_status,
-            :stderr_to_stdout,
-            :use_stdio,
-            {:cd, to_charlist(root)},
-            {:args, Keyword.get(opts, :args, [])},
-            {:env, [{~c"FACTORIO_RCON_PASSWORD", to_charlist(password)}]}
-          ])
+      state = %{
+        launch: %{
+          executable: executable,
+          directory: root,
+          args: Keyword.get(opts, :args, []),
+          password: password
+        },
+        port: nil,
+        os_pid: nil,
+        state: :starting,
+        exit_status: nil,
+        output: "",
+        subscribers: %{},
+        waiters: [],
+        restart_waiters: [],
+        intent: nil,
+        timer: nil,
+        shutdown_tag: nil,
+        shutdown_timeout: Keyword.get(opts, :shutdown_timeout, 10_000)
+      }
 
-        # A one-shot command may exit before init queries its OS pid. The queued
-        # exit_status is still authoritative; do not turn a fast exit into a
-        # misleading could_not_start_server error.
-        os_pid = port_os_pid(port)
-
-        {:ok,
-         %{
-           port: port,
-           os_pid: os_pid,
-           state: :starting,
-           exit_status: nil,
-           output: "",
-           subscribers: %{},
-           waiters: [],
-           timer: nil,
-           shutdown_timeout: Keyword.get(opts, :shutdown_timeout, 10_000)
-         }}
-      rescue
-        _ in [ArgumentError, ErlangError] -> {:stop, :could_not_start_server}
+      case launch(state) do
+        {:ok, state} -> {:ok, state}
+        {:error, reason} -> {:stop, reason}
       end
     else
       {:stop, :missing_password}
@@ -129,23 +128,40 @@ defmodule FactorioControl.Server do
     {:reply, :ok, %{state | subscribers: subscribers}}
   end
 
-  def handle_call(:stop, _from, %{state: :exited} = state), do: {:reply, :ok, state}
+  def handle_call(:stop, _from, %{state: :exited} = state),
+    do: {:reply, :ok, %{state | intent: :quit}}
 
   def handle_call(:stop, from, state) do
-    state =
-      if state.timer do
-        state
-      else
-        request_quit(state.port)
-
-        %{
-          state
-          | state: :stopping,
-            timer: Process.send_after(self(), :shutdown_timeout, state.shutdown_timeout)
-        }
-      end
-
+    Enum.each(state.restart_waiters, &GenServer.reply(&1, {:error, :restart_cancelled}))
+    state = request_shutdown(%{state | restart_waiters: [], intent: :quit})
     {:noreply, %{state | waiters: [from | state.waiters]}}
+  end
+
+  def handle_call(:restart, _from, %{state: :exited, exit_status: code} = state) when code != 0,
+    do: {:reply, {:error, {:exit_status, code}}, state}
+
+  # A delayed restart caller must not resurrect an owner explicitly quit by
+  # the console or SIGTERM. Start a fresh owner after a completed explicit stop.
+  def handle_call(:restart, _from, %{state: :exited, intent: :quit} = state),
+    do: {:reply, {:error, :shutdown_requested}, state}
+
+  def handle_call(:restart, _from, %{state: :exited} = state) do
+    case launch(state) do
+      {:ok, state} ->
+        notify(state, {:restarted, state.os_pid})
+        {:reply, :ok, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  def handle_call(:restart, _from, %{intent: :quit} = state),
+    do: {:reply, {:error, :shutdown_in_progress}, state}
+
+  def handle_call(:restart, from, state) do
+    state = request_shutdown(%{state | intent: :restart})
+    {:noreply, %{state | restart_waiters: [from | state.restart_waiters]}}
   end
 
   @impl true
@@ -170,14 +186,51 @@ defmodule FactorioControl.Server do
       &GenServer.reply(&1, if(code == 0, do: :ok, else: {:error, {:exit_status, code}}))
     )
 
-    Enum.each(Map.keys(state.subscribers), &send(&1, {:factorio, self(), {:exit_status, code}}))
-    {:noreply, %{state | state: :exited, exit_status: code, port: nil, waiters: [], timer: nil}}
+    restart_waiters = state.restart_waiters
+    restarting = state.intent == :restart and code == 0
+
+    state = %{
+      state
+      | state: :exited,
+        exit_status: code,
+        port: nil,
+        waiters: [],
+        restart_waiters: [],
+        timer: nil,
+        shutdown_tag: nil,
+        intent: if(state.intent == :quit, do: :quit, else: nil)
+    }
+
+    if restarting do
+      case launch(state) do
+        {:ok, state} ->
+          notify(state, {:restarted, state.os_pid})
+          Enum.each(restart_waiters, &GenServer.reply(&1, :ok))
+          {:noreply, state}
+
+        {:error, reason} ->
+          Enum.each(restart_waiters, &GenServer.reply(&1, {:error, reason}))
+          notify(state, {:restart_failed, reason})
+          {:noreply, state}
+      end
+    else
+      Enum.each(restart_waiters, &GenServer.reply(&1, {:error, {:exit_status, code}}))
+      notify(state, {:exit_status, code})
+      {:noreply, state}
+    end
   end
 
-  def handle_info(:shutdown_timeout, state) do
-    Enum.each(state.waiters, &GenServer.reply(&1, {:error, :shutdown_timeout}))
-    {:noreply, %{state | waiters: [], timer: nil}}
+  def handle_info({:shutdown_timeout, tag}, %{shutdown_tag: tag} = state) when not is_nil(tag) do
+    Enum.each(
+      state.waiters ++ state.restart_waiters,
+      &GenServer.reply(&1, {:error, :shutdown_timeout})
+    )
+
+    {:noreply,
+     %{state | waiters: [], restart_waiters: [], intent: nil, timer: nil, shutdown_tag: nil}}
   end
+
+  def handle_info({:shutdown_timeout, _stale_tag}, state), do: {:noreply, state}
 
   def handle_info({:DOWN, ref, :process, pid, _}, state) do
     subscribers =
@@ -201,6 +254,62 @@ defmodule FactorioControl.Server do
       request_quit(state.port)
       wait_for_exit(state.port, System.monotonic_time(:millisecond) + state.shutdown_timeout)
     end
+  end
+
+  @impl true
+  def format_status(status) do
+    Map.update!(status, :state, fn state ->
+      %{state | launch: :redacted}
+    end)
+  end
+
+  defp request_shutdown(%{timer: timer} = state) when not is_nil(timer), do: state
+
+  defp request_shutdown(state) do
+    request_quit(state.port)
+    tag = make_ref()
+
+    %{
+      state
+      | state: :stopping,
+        shutdown_tag: tag,
+        timer: Process.send_after(self(), {:shutdown_timeout, tag}, state.shutdown_timeout)
+    }
+  end
+
+  defp launch(state) do
+    spec = state.launch
+
+    try do
+      port =
+        Port.open({:spawn_executable, to_charlist(spec.executable)}, [
+          :binary,
+          :exit_status,
+          :stderr_to_stdout,
+          :use_stdio,
+          {:cd, to_charlist(spec.directory)},
+          {:args, spec.args},
+          {:env, [{~c"FACTORIO_RCON_PASSWORD", to_charlist(spec.password)}]}
+        ])
+
+      # A fast one-shot exit may already be queued when querying the pid.
+      {:ok,
+       %{
+         state
+         | port: port,
+           os_pid: port_os_pid(port),
+           state: :starting,
+           exit_status: nil,
+           output: "",
+           intent: nil
+       }}
+    rescue
+      _ in [ArgumentError, ErlangError] -> {:error, :could_not_start_server}
+    end
+  end
+
+  defp notify(state, event) do
+    Enum.each(Map.keys(state.subscribers), &send(&1, {:factorio, self(), event}))
   end
 
   defp port_os_pid(port) do

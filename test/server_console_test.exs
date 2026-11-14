@@ -36,6 +36,8 @@ defmodule FactorioControl.ServerConsoleTest do
         )
       )
 
+    Process.unlink(server)
+
     on_exit(fn ->
       File.touch!(release)
 
@@ -72,7 +74,12 @@ defmodule FactorioControl.ServerConsoleTest do
 
   defp console(server, input) do
     {:ok, output} = StringIO.open("")
-    on_exit(fn -> if Process.alive?(output), do: StringIO.close(output) end)
+    Process.unlink(output)
+
+    # This is a test-owned in-memory device, not the Port owner. ExUnit may
+    # already be shutting it down; an idempotent exit avoids a close-call race.
+    on_exit(fn -> Process.exit(output, :kill) end)
+
     task = Task.async(fn -> ServerConsole.run(server, input: input, output: output) end)
     on_exit(fn -> if Process.alive?(task.pid), do: Process.exit(task.pid, :kill) end)
     {task, output}
@@ -199,6 +206,79 @@ defmodule FactorioControl.ServerConsoleTest do
     assert Task.await(task, 5000) == {:error, {:owner_exit, :normal}}
     eventually(fn -> not Process.alive?(reader) end)
     assert File.read!(commands) == "/quit\n"
+  end
+
+  test "r and restart keep the console alive across process exit and allow q afterwards" do
+    for command <- ["r\n", "restart\n", " R \r\n"] do
+      {server, _, commands} =
+        fixture("""
+        printf 'boot\n' >> "$2.starts"
+        printf 'Starting RCON interface\n'
+        while IFS= read -r command; do
+          printf '%s\n' "$command" >> "$2"
+          [ "$command" = /quit ] || exit 9
+          printf 'Save completed\n'
+          exit 0
+        done
+        """)
+
+      input = input_device()
+      {task, io} = console(server, input)
+      assert_receive {:input_requested, ^input, _}, 2000
+      send(input, {:feed, command})
+      eventually(fn -> start_count(commands) == 2 end)
+      assert Task.yield(task, 0) == nil
+      assert output(io) =~ "Previous process exited cleanly"
+      send(input, {:feed, "q\n"})
+      assert Task.await(task, 5000) == :ok
+      assert start_count(commands) == 2
+      assert File.read!(commands) == "/quit\n/quit\n"
+    end
+  end
+
+  test "q cancels a pending r and repeated r does not start extra processes" do
+    {server, release, commands} =
+      fixture("""
+      printf 'boot\n' >> "$2.starts"
+      printf 'Starting RCON interface\n'
+      while IFS= read -r command; do
+        printf '%s\n' "$command" >> "$2"
+        while [ ! -e "$1" ]; do sleep 0.01; done
+        printf 'Saved and stopped\n'
+        exit 0
+      done
+      """)
+
+    input = input_device()
+    {task, _} = console(server, input)
+    assert_receive {:input_requested, ^input, _}, 2000
+    send(input, {:feed, "r\n"})
+    eventually(fn -> File.exists?(commands) end)
+    send(input, {:feed, "r\n"})
+    send(input, {:feed, "q\n"})
+    eventually(fn -> :sys.get_state(server).intent == :quit end)
+    File.touch!(release)
+    assert Task.await(task, 5000) == :ok
+    assert start_count(commands) == 1
+    assert File.read!(commands) == "/quit\n"
+  end
+
+  test "a failed relaunch ends the console with an explicit error" do
+    {server, release, _} = fixture()
+    assert Server.await_ready(server) == :ok
+    input = input_device()
+    {task, _} = console(server, input)
+    assert_receive {:input_requested, ^input, _}, 2000
+    File.rm!(Path.join(Path.dirname(release), "fake-factorio"))
+    send(input, {:feed, "r\n"})
+    assert Task.await(task, 5000) == {:error, {:restart_failed, :could_not_start_server}}
+  end
+
+  defp start_count(commands) do
+    case File.read(commands <> ".starts") do
+      {:ok, contents} -> length(String.split(contents, "\n", trim: true))
+      _ -> 0
+    end
   end
 
   test "nonzero game exit is returned and a blocked keyboard reader is cleaned up" do

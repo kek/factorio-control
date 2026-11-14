@@ -1,6 +1,6 @@
 defmodule Mix.Tasks.Factorio.Server do
   use Mix.Task
-  @shortdoc "Run the local Factorio server in an Elixir Port (q + Enter quits)"
+  @shortdoc "Run the local Factorio server (q + Enter quits; r + Enter restarts)"
 
   def run([]) do
     Mix.Task.run("app.start")
@@ -18,7 +18,7 @@ defmodule Mix.Tasks.Factorio.Server do
 
       {:error, reason} ->
         Mix.raise(
-          "Server shutdown unconfirmed: #{inspect(reason)}; inspect the native process before restarting"
+          "Server lifecycle failed: #{inspect(reason)}; inspect the native process before restarting"
         )
     end
   end

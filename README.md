@@ -31,9 +31,10 @@ mix factorio.server
 ```
 
 `mix factorio.server` owns the game process through an Elixir `Port` and streams its output.
-**To save and quit, type `q` then Enter** (`quit` then Enter also works). The
-launcher requests shutdown through the Port owner and continues displaying logs
-until Factorio actually exits. Terminal input is line-buffered; other text is
+**To save and quit, type `q` then Enter** (`quit` also works).
+**To save and restart, type `r` then Enter** (`restart` also works). The
+launcher keeps streaming logs while the Port owner waits for a clean process
+exit before relaunching the same server, save, arguments and credentials. Terminal input is line-buffered; other text is
 ignored rather than forwarded as game commands.
 
 It launches `scripts/server`, which links the mod from `mods/factorio-control` into the server's mod directory and execs the game with `my-save.zip` and `server-settings.json`. These settings keep ticks advancing with no connected players. If the mod was previously disabled, enable `factorio-control` in `factorio/mods/mod-list.json` before starting.
@@ -59,21 +60,31 @@ To own the server from an interactive Elixir session instead, use `iex -S mix`:
 {:ok, server} = FactorioControl.Server.start_link()
 FactorioControl.Server.await_ready(server)
 FactorioControl.Server.status(server)
+# Save and restart the game under the same owner:
+FactorioControl.Server.restart(server)
 # After playing:
 FactorioControl.Server.stop(server)
 ```
 
 Use one server launcher at a time. `Server.stop/1` sends `/quit` through the
 Port's stdin and waits for the process to save and exit. `mix factorio.server`
-accepts `q`/`quit` plus Enter and also handles SIGTERM for orderly shutdown. Repeated quit input is ignored while a shutdown is pending.
-If shutdown times out, the console remains open and reports the unconfirmed
-state; another `q` explicitly retries. EOF leaves the server running for external
+accepts `q`/`quit` or `r`/`restart` plus Enter and also handles SIGTERM for
+orderly shutdown. Repeated restart input is ignored while saving; `q` or SIGTERM
+cancels a pending restart. Restart preserves the owner PID, so signal handling
+continues to address the current game process across restarts.
+A timeout or nonzero shutdown exit never causes an automatic relaunch. A timeout
+leaves the console open with ownership intact; another `q` or `r` explicitly retries.
+A failed new-process launch is reported as an error. EOF leaves the server running for external
 lifecycle management. A double Ctrl-C or forced VM kill can bypass cleanup; a
 Port closing alone does not guarantee the OS process exits. At an Erlang `BREAK`
 prompt, press `c` to resume before requesting a graceful shutdown. Startup/shutdown
 timeouts remain visible in `Server.status/1`; no automatic server restart occurs.
 Server ownership is opt-in, so running client commands or tests does not launch
 a second game server.
+
+Server restarts reload on-disk Lua mod changes. Elixir launcher changes (including
+new keyboard commands) need a one-time exit and fresh `mix factorio.server` launch;
+an already-running launcher does not gain commands just by editing files.
 
 ## Control the bot
 
