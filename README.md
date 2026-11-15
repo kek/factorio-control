@@ -1,5 +1,10 @@
 # Factorio Control
 
+For an agent restricted to a single direct EYG tool, use the
+[gameplay-only Pi adapter](integrations/pi/README.md). Its deterministic host
+owns execution policy, source/trace artifacts and connection configuration;
+the gameplay agent has no shell or file tools.
+
 An Elixir host controls a character on a headless Factorio server through a small Lua mod. EYG programs can use the same constrained gameplay interface through an Elixir effect host that embeds the upstream EYG interpreter.
 
 **Status:** working prototype on **Factorio 2.1.24**. RCON, inspection, walking, mining, placement, inventory transfers, and iron production have been exercised on the local server. The EYG coal-to-iron program has also passed on the live server, including a depleted coal tile and a full furnace output. Recipe-driven crafting is available; pathfinding remains future work.

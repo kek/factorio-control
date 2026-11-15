@@ -6,6 +6,19 @@ compatibility: A factorio-control checkout, matching running server/mod, Elixir/
 
 # Play Factorio
 
+## Gameplay-only agent interface
+
+Use the direct `factorio_eyg({program})` tool in the isolated gameplay mode
+specified in [integrations/pi/README.md](../../integrations/pi/README.md).
+Do not stage EYG via `write` and then execute it with a model-generated Bash
+command. The deterministic adapter owns source retention, traces, endpoint,
+actor, grants and limits. If that tool is unavailable, stop gameplay and ask the
+operator to activate the isolated mode; do not fall back to shell execution.
+The CLI examples below are operator/developer references for testing and
+maintenance, not an alternate gameplay-agent interface. Capability development
+uses a separate privileged coding session, not tools exposed to the gameplay
+agent. `DescribeEffect` provides host-local schema discovery through EYG.
+
 ## Establish the game and capabilities
 
 1. Establish the checkout, command execution environment and actual server
