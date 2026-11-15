@@ -79,6 +79,58 @@ defmodule FactorioControl.RconTest do
     Task.await(task)
   end
 
+  test "explicit confirmation sends two byte-identical fixed no-ops when the first has no reply" do
+    {port, task} =
+      server(fn socket ->
+        auth(socket)
+        assert {2, 2, first} = receive_packet(socket)
+        assert {3, 2, second} = receive_packet(socket)
+        assert first == second
+        assert first =~ ~r/\A\/sc rcon\.print\('__FACTORIO_CONTROL_[0-9A-F]{32}__'\)\z/
+        :ok = :gen_tcp.send(socket, packet(3, 0, marker(second)))
+      end)
+
+    assert Rcon.confirm_lua_console(host: "127.0.0.1", port: port, password: "secret") ==
+             {:ok, true}
+
+    Task.await(task)
+  end
+
+  test "confirmation tolerates the already-enabled first reply and fragmented second marker" do
+    {port, task} =
+      server(fn socket ->
+        auth(socket)
+        {2, 2, first} = receive_packet(socket)
+        {3, 2, second} = receive_packet(socket)
+        assert first == second
+        marker = marker(second)
+        <<a::binary-size(12), b::binary>> = marker
+        :ok = :gen_tcp.send(socket, packet(2, 0, marker) <> packet(2, 0, "") <> packet(3, 0, a))
+        :ok = :gen_tcp.send(socket, packet(3, 0, b) <> packet(3, 0, ""))
+      end)
+
+    assert Rcon.confirm_lua_console(host: "127.0.0.1", port: port, password: "secret") ==
+             {:ok, true}
+
+    Task.await(task)
+  end
+
+  test "confirmation requires the second acknowledgement and never sends a third command" do
+    {port, task} =
+      server(fn socket ->
+        auth(socket)
+        {2, 2, first} = receive_packet(socket)
+        {3, 2, ^first} = receive_packet(socket)
+        :ok = :gen_tcp.send(socket, packet(2, 0, marker(first)))
+        :gen_tcp.close(socket)
+      end)
+
+    assert Rcon.confirm_lua_console(host: "127.0.0.1", port: port, password: "secret") ==
+             {:error, :closed}
+
+    Task.await(task)
+  end
+
   test "rejects bad authentication" do
     Process.flag(:trap_exit, true)
 

@@ -100,6 +100,69 @@ defmodule Mix.Tasks.Factorio.EygTest do
     end
   end
 
+  test "CLI explicit consent uses a dedicated fixed-command connection", %{directory: directory} do
+    {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
+    {:ok, {_, port}} = :inet.sockname(listener)
+
+    server =
+      Task.async(fn ->
+        {:ok, primary} = :gen_tcp.accept(listener, 5000)
+        assert {1, 3, "test-secret"} = receive_packet(primary)
+        :ok = :gen_tcp.send(primary, packet(1, 2, ""))
+        {:ok, confirmation} = :gen_tcp.accept(listener, 5000)
+        assert {1, 3, "test-secret"} = receive_packet(confirmation)
+        :ok = :gen_tcp.send(confirmation, packet(1, 2, ""))
+        assert {2, 2, first} = receive_packet(confirmation)
+        assert {3, 2, ^first} = receive_packet(confirmation)
+        [marker] = Regex.run(~r/__FACTORIO_CONTROL_[0-9A-F]+__/, first)
+        :ok = :gen_tcp.send(confirmation, packet(3, 0, marker))
+        assert {:error, :closed} = :gen_tcp.recv(confirmation, 0, 5000)
+        assert {:error, :closed} = :gen_tcp.recv(primary, 0, 5000)
+        :gen_tcp.close(confirmation)
+        :gen_tcp.close(primary)
+      end)
+
+    on_exit(fn ->
+      :gen_tcp.close(listener)
+      if Process.alive?(server.pid), do: Process.exit(server.pid, :kill)
+    end)
+
+    source = Path.join(directory, "confirm.eyg")
+    trace = Path.join(directory, "confirm.jsonl")
+    File.cp!("scenarios/confirm-lua-console.eyg", source)
+
+    text =
+      capture_io(fn ->
+        Mix.Tasks.Factorio.Eyg.run([
+          "--host",
+          "127.0.0.1",
+          "--port",
+          to_string(port),
+          "--effects",
+          "ConfirmLuaConsole",
+          "--confirm-achievements",
+          "--trace",
+          trace,
+          source
+        ])
+      end)
+
+    assert text =~ "permanently disable achievements"
+    assert text =~ "\"confirmed\":true"
+    assert File.read!(trace) =~ "confirm_lua_console"
+    Task.await(server)
+  end
+
+  test "CLI consent flag alone is rejected before opening a trace", %{directory: directory} do
+    trace = Path.join(directory, "denied.jsonl")
+
+    assert_raise Mix.Error, ~r/requires an explicit ConfirmLuaConsole grant/, fn ->
+      Mix.Tasks.Factorio.Eyg.run(["--confirm-achievements", "--trace", trace, "missing.eyg"])
+    end
+
+    refute File.exists?(trace)
+  end
+
   test "CLI rejects invalid selectors before reading source or opening a trace", %{
     directory: directory
   } do

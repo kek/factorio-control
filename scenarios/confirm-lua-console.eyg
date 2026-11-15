@@ -1,0 +1,6 @@
+// Explicit, irreversible consent for this save. Grant only ConfirmLuaConsole
+// and supply --confirm-achievements. No gameplay mutation is repeated.
+match perform ConfirmLuaConsole({confirm: True({})}) {
+  Ok(s) -> {{success: True({}), confirmed: s.confirmed, error: ""}}
+  Error(e) -> {{success: False({}), confirmed: False({}), error: e}}
+}

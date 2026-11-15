@@ -15,7 +15,8 @@ defmodule Mix.Tasks.Factorio.Eyg do
           trace: :string,
           host: :string,
           port: :integer,
-          bot: :string
+          bot: :string,
+          confirm_achievements: :boolean
         ]
       )
 
@@ -45,8 +46,13 @@ defmodule Mix.Tasks.Factorio.Eyg do
         e in ArgumentError -> Mix.raise("--#{Exception.message(e)}")
       end
 
+    if opts[:confirm_achievements] &&
+         "ConfirmLuaConsole" not in String.split(opts[:effects] || "", ",", trim: true),
+       do: Mix.raise("--confirm-achievements requires an explicit ConfirmLuaConsole grant")
+
     code = File.read!(file)
     password = System.get_env("FACTORIO_RCON_PASSWORD") || Mix.raise("Set FACTORIO_RCON_PASSWORD")
+    connection_opts = Keyword.merge(Keyword.take(opts, [:host, :port]), password: password)
 
     trace_path =
       opts[:trace] ||
@@ -73,16 +79,32 @@ defmodule Mix.Tasks.Factorio.Eyg do
         do: Keyword.put(run_opts, :effects, String.split(opts[:effects], ",", trim: true)),
         else: run_opts
 
+    run_opts =
+      if opts[:confirm_achievements] do
+        Keyword.put(run_opts, :confirm_lua_console, fn ->
+          Mix.shell().info(
+            "Explicit confirmation: Lua console commands permanently disable achievements for this save."
+          )
+
+          case Rcon.confirm_lua_console(connection_opts) do
+            {:ok, true} -> {:ok, %{"ok" => true, "data" => %{"confirmed" => true}}}
+            error -> error
+          end
+        end)
+      else
+        run_opts
+      end
+
     trace.(%{
       type: "start",
       bot: bot,
       source_sha256: Base.encode16(:crypto.hash(:sha256, code), case: :lower),
       evaluator: evaluator_versions(),
-      effects: Keyword.get(run_opts, :effects, Map.keys(Eyg.contracts()))
+      effects: Keyword.get(run_opts, :effects, Eyg.default_effects())
     })
 
     try do
-      case Rcon.start_link(Keyword.merge(Keyword.take(opts, [:host, :port]), password: password)) do
+      case Rcon.start_link(connection_opts) do
         {:ok, client} ->
           try do
             case Eyg.run(client, code, run_opts) do

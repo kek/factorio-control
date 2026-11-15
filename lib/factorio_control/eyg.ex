@@ -34,6 +34,8 @@ defmodule FactorioControl.Eyg do
     receipt = record(tick: int, count: int, action_id: int)
 
     %{
+      "ConfirmLuaConsole" =>
+        contract(record(confirm: scalar("boolean")), record(confirmed: scalar("boolean"))),
       "Inspect" =>
         contract(
           record(radius: int),
@@ -178,11 +180,33 @@ defmodule FactorioControl.Eyg do
     |> Map.merge(FactorioControl.Eyg.Expansion.contracts())
   end
 
+  # Irreversible console acknowledgement is never included in implicit grants.
+  def default_effects, do: Map.keys(contracts()) -- ["ConfirmLuaConsole"]
+
   def run(client, code, opts \\ []) do
     bot = Bot.validate_name!(Keyword.get(opts, :bot, "default"))
 
     raw_call =
-      Keyword.get(opts, :call, fn method, args -> Bot.call(client, method, args, bot: bot) end)
+      Keyword.get(opts, :call, fn
+        :confirm_lua_console, _args ->
+          case Keyword.get(opts, :confirm_lua_console) do
+            confirm when is_function(confirm, 0) ->
+              confirm.()
+
+            _ ->
+              {:ok,
+               %{
+                 "ok" => false,
+                 "error" => %{
+                   "code" => "confirmation_required",
+                   "message" => "Explicit host consent is required"
+                 }
+               }}
+          end
+
+        method, args ->
+          Bot.call(client, method, args, bot: bot)
+      end)
 
     raw_await = Keyword.get(opts, :await, fn id -> Bot.await(client, id, 65_000, bot: bot) end)
     owner = self()
@@ -219,7 +243,7 @@ defmodule FactorioControl.Eyg do
     end
 
     opts = Keyword.put(opts, :receipt_ref, receipt_ref)
-    allowed = Keyword.get(opts, :effects, Map.keys(contracts()))
+    allowed = Keyword.get(opts, :effects, default_effects())
 
     unless Enum.all?(allowed, &Map.has_key?(contracts(), &1)),
       do: raise(ArgumentError, "unknown effect grant")
@@ -299,6 +323,16 @@ defmodule FactorioControl.Eyg do
     if sink = Keyword.get(opts, :trace), do: sink.(event)
     {tag, result, trace ++ [event]}
   end
+
+  def handle("ConfirmLuaConsole", %{"confirm" => true}, call, _) do
+    with {:ok, response} <- invoke(call, :confirm_lua_console, %{"confirm" => true}) do
+      if response["data"] == %{"confirmed" => true},
+        do: {:ok, %{"confirmed" => true}},
+        else: {:fatal, :invalid_confirmation_receipt}
+    end
+  end
+
+  def handle("ConfirmLuaConsole", _, _, _), do: {:error, "confirm must be true"}
 
   def handle("Inspect", %{"radius" => radius}, call, _)
       when is_integer(radius) and radius in 0..64 do

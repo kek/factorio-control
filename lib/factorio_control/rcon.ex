@@ -19,9 +19,35 @@ defmodule FactorioControl.Rcon do
     GenServer.call(client, {:lua, source, timeout}, :infinity)
   end
 
+  @doc "Explicitly acknowledge disabled achievements with two identical fixed no-op commands."
+  def confirm_lua_console(opts, timeout \\ 5_000) when timeout > 0 do
+    with {:ok, socket} <- connect(opts, timeout) do
+      try do
+        marker = "__FACTORIO_CONTROL_" <> Base.encode16(:crypto.strong_rand_bytes(16)) <> "__"
+        command = "/sc rcon.print('" <> marker <> "')"
+        deadline = deadline(timeout)
+
+        with :ok <- send_packet(socket, 2, 2, command),
+             :ok <- send_packet(socket, 3, 2, command) do
+          confirmation_response(socket, marker, deadline, "", 0, 0)
+        end
+      after
+        # A dedicated socket contains both acknowledgements and any trailing
+        # packets. Nothing can contaminate the next gameplay request.
+        :gen_tcp.close(socket)
+      end
+    end
+  end
+
   @impl true
   def init(opts) do
-    timeout = Keyword.get(opts, :timeout, 5_000)
+    case connect(opts, Keyword.get(opts, :timeout, 5_000)) do
+      {:ok, socket} -> {:ok, %{socket: socket, id: 1}}
+      {:error, reason} -> {:stop, reason}
+    end
+  end
+
+  defp connect(opts, timeout) do
     host = opts |> Keyword.get(:host, "localhost") |> to_charlist()
     port = Keyword.get(opts, :port, 27015)
     password = Keyword.fetch!(opts, :password)
@@ -43,15 +69,15 @@ defmodule FactorioControl.Rcon do
 
         with :ok <- send_packet(socket, 1, 3, password),
              :ok <- authenticate(socket, deadline, 4) do
-          {:ok, %{socket: socket, id: 1}}
+          {:ok, socket}
         else
           {:error, reason} ->
             :gen_tcp.close(socket)
-            {:stop, reason}
+            {:error, reason}
         end
 
       {:error, reason} ->
-        {:stop, reason}
+        {:error, reason}
     end
   end
 
@@ -102,6 +128,41 @@ defmodule FactorioControl.Rcon do
       {:ok, {1, 0, ""}} -> authenticate(socket, deadline, remaining - 1)
       {:ok, _} -> {:error, :invalid_auth_response}
       error -> error
+    end
+  end
+
+  defp confirmation_response(_socket, _marker, _deadline, _body, 16384, _bytes),
+    do: {:error, :too_many_packets}
+
+  defp confirmation_response(socket, marker, deadline, body, packets, bytes) do
+    case recv_packet(socket, deadline) do
+      {:ok, {_id, 0, ""}} ->
+        confirmation_response(socket, marker, deadline, body, packets + 1, bytes)
+
+      {:ok, {id, 0, part}} when id in [2, 3] and bytes + byte_size(part) <= @max_response ->
+        body = if id == 3, do: body <> part, else: body
+
+        if :binary.match(body, marker) != :nomatch do
+          {:ok, true}
+        else
+          confirmation_response(
+            socket,
+            marker,
+            deadline,
+            body,
+            packets + 1,
+            bytes + byte_size(part)
+          )
+        end
+
+      {:ok, {id, 0, _}} when id in [2, 3] ->
+        {:error, :response_too_large}
+
+      {:ok, _} ->
+        {:error, :unexpected_response}
+
+      error ->
+        error
     end
   end
 
