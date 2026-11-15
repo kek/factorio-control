@@ -3,9 +3,11 @@ defmodule FactorioControl.Rcon do
   Serialized, authenticated Source RCON connection. Lua replies are terminated by
   a unique in-band marker, including replies split over multiple packets.
 
-  Transport/protocol failures close the socket. Commands are never retried:
-  after a lost reply, the caller must inspect game state before issuing another
-  mutation. A timeout is an unknown outcome, not evidence of failure in-game.
+  Transport/protocol failures close the socket. Gameplay commands are never
+  retried: after a lost reply, inspect state before issuing another mutation.
+  A timeout is an unknown outcome, not evidence of failure in-game. Explicit
+  achievements confirmation is separate: it sends only a fixed harmless print
+  twice on its own socket, never an arbitrary gameplay command.
   """
   use GenServer
   @max_packet 4 * 1024 * 1024

@@ -64,6 +64,12 @@ headless distribution, saves, build output and local credentials are unversioned
   dependencies is an explicit setup step, never an automatic action during
   evaluation. If `deps/` holds a half-extracted package from an interrupted
   fetch, delete `deps/` and fetch again.
+- If a fresh save displays the Lua achievements confirmation, obtain explicit
+  user consent for permanently disabling achievements. Then run the separately
+  granted `ConfirmLuaConsole` effect with `--confirm-achievements` using
+  `scenarios/confirm-lua-console.eyg`. It acknowledges with two identical fixed
+  print commands on a dedicated connection; never confirm by replaying gameplay
+  mutations. It is not included in default grants.
 - Continuations live only inside a run's evaluation process. Never transfer or
   replay them across runs, and never replay uncertain mutations after a failure.
 - Factorio multiplayer defaults to **UDP 34197** and RCON to **TCP 27015**.

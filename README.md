@@ -16,6 +16,19 @@ An Elixir host controls a character on a headless Factorio server through a smal
 > recorded on Steam. Use a separate save and client installation, not your
 > ordinary game.
 
+On a fresh save, Factorio may ask for an identical Lua command to be repeated
+before enabling console access. After explicitly accepting the permanent loss
+of achievements for that save, run this once:
+
+```sh
+mix factorio.eyg --effects ConfirmLuaConsole --confirm-achievements scenarios/confirm-lua-console.eyg
+```
+
+This separately granted setup effect sends only two identical, fixed print
+commands on a dedicated connection. It never repeats a gameplay mutation and
+is excluded from default effect grants. Both the explicit grant and consent
+flag are required. Normal commands retain their no-retry behavior.
+
 ## Run locally
 
 Requires Elixir 1.18+ with OTP 27+ and the Factorio 2.1.24 Linux headless distribution unpacked into `factorio/`. There are no Hex dependencies. The game, saves, build output, and local credentials are ignored by version control.

@@ -105,7 +105,13 @@ defmodule FactorioControl.RconTest do
         assert first == second
         marker = marker(second)
         <<a::binary-size(12), b::binary>> = marker
-        :ok = :gen_tcp.send(socket, packet(2, 0, marker) <> packet(2, 0, "") <> packet(3, 0, a))
+
+        :ok =
+          :gen_tcp.send(
+            socket,
+            packet(1, 0, "") <> packet(2, 0, marker) <> packet(2, 0, "") <> packet(3, 0, a)
+          )
+
         :ok = :gen_tcp.send(socket, packet(3, 0, b) <> packet(3, 0, ""))
       end)
 
