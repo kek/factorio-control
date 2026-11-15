@@ -117,6 +117,8 @@ defmodule FactorioControl.Eyg do
             version: text
           )
         ),
+      "DescribeEffect" =>
+        contract(record(name: text), record(argument_json: text, result_json: text)),
       "InspectRecipe" =>
         contract(
           record(name: text),
@@ -322,6 +324,20 @@ defmodule FactorioControl.Eyg do
     event = %{type: "cleanup_stop", result: receipt_result(cleanup)}
     if sink = Keyword.get(opts, :trace), do: sink.(event)
     {tag, result, trace ++ [event]}
+  end
+
+  def handle("DescribeEffect", %{"name" => name}, _, _) do
+    case Map.fetch(contracts(), name) do
+      {:ok, schema} ->
+        {:ok,
+         %{
+           "argument_json" => JSON.encode!(schema["argument"]),
+           "result_json" => JSON.encode!(schema["result"])
+         }}
+
+      :error ->
+        {:error, "Unknown effect"}
+    end
   end
 
   def handle("ConfirmLuaConsole", %{"confirm" => true}, call, _) do
