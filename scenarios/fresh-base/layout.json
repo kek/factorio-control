@@ -1,0 +1,595 @@
+{
+  "units": "integer half tiles; normal quality",
+  "scope": "Constructed fresh-save bootstrap, not a replayable construction plan",
+  "save_origin": "fresh-start-20261115T212752Z-5eee384f",
+  "objects": [
+    {
+      "name": "offshore-pump",
+      "x2": -83,
+      "y2": -13,
+      "direction": "west"
+    },
+    {
+      "name": "pipe",
+      "x2": -81,
+      "y2": -13,
+      "direction": "north"
+    },
+    {
+      "name": "boiler",
+      "x2": -77,
+      "y2": -14,
+      "direction": "north"
+    },
+    {
+      "name": "pipe",
+      "x2": -77,
+      "y2": -17,
+      "direction": "north"
+    },
+    {
+      "name": "steam-engine",
+      "x2": -77,
+      "y2": -23,
+      "direction": "north"
+    },
+    {
+      "name": "lab",
+      "x2": -67,
+      "y2": -21,
+      "direction": "north"
+    },
+    {
+      "name": "electric-mining-drill",
+      "x2": 17,
+      "y2": 45,
+      "direction": "north"
+    },
+    {
+      "name": "electric-mining-drill",
+      "x2": 25,
+      "y2": 45,
+      "direction": "north"
+    },
+    {
+      "name": "stone-furnace",
+      "x2": 16,
+      "y2": 40,
+      "direction": "north"
+    },
+    {
+      "name": "stone-furnace",
+      "x2": 24,
+      "y2": 40,
+      "direction": "north"
+    },
+    {
+      "name": "burner-mining-drill",
+      "x2": 20,
+      "y2": -88,
+      "direction": "east"
+    },
+    {
+      "name": "burner-mining-drill",
+      "x2": 24,
+      "y2": -88,
+      "direction": "west"
+    },
+    {
+      "name": "burner-mining-drill",
+      "x2": 92,
+      "y2": -92,
+      "direction": "south"
+    },
+    {
+      "name": "stone-furnace",
+      "x2": 92,
+      "y2": -88,
+      "direction": "north"
+    },
+    {
+      "name": "gun-turret",
+      "x2": -60,
+      "y2": -16,
+      "direction": "north"
+    },
+    {
+      "name": "gun-turret",
+      "x2": 28,
+      "y2": 38,
+      "direction": "north"
+    },
+    {
+      "name": "gun-turret",
+      "x2": 32,
+      "y2": -84,
+      "direction": "north"
+    },
+    {
+      "name": "gun-turret",
+      "x2": 92,
+      "y2": -84,
+      "direction": "north"
+    },
+    {
+      "name": "assembling-machine-1",
+      "x2": -53,
+      "y2": -17,
+      "direction": "north"
+    },
+    {
+      "name": "wooden-chest",
+      "x2": -47,
+      "y2": -17,
+      "direction": "north"
+    },
+    {
+      "name": "inserter",
+      "x2": -49,
+      "y2": -17,
+      "direction": "east"
+    },
+    {
+      "name": "inserter",
+      "x2": -57,
+      "y2": -17,
+      "direction": "east"
+    },
+    {
+      "name": "inserter",
+      "x2": -45,
+      "y2": -17,
+      "direction": "east"
+    },
+    {
+      "name": "inserter",
+      "x2": 15,
+      "y2": 37,
+      "direction": "south"
+    },
+    {
+      "name": "inserter",
+      "x2": 23,
+      "y2": 37,
+      "direction": "south"
+    },
+    {
+      "name": "small-electric-pole",
+      "x2": -73,
+      "y2": -21
+    },
+    {
+      "name": "small-electric-pole",
+      "x2": -65,
+      "y2": -17
+    },
+    {
+      "name": "small-electric-pole",
+      "x2": -59,
+      "y2": -21
+    },
+    {
+      "name": "small-electric-pole",
+      "x2": -47,
+      "y2": -21
+    },
+    {
+      "name": "small-electric-pole",
+      "x2": 19,
+      "y2": 33
+    },
+    {
+      "name": "small-electric-pole",
+      "x2": 5,
+      "y2": 33
+    },
+    {
+      "name": "small-electric-pole",
+      "x2": -7,
+      "y2": 33
+    },
+    {
+      "name": "small-electric-pole",
+      "x2": -19,
+      "y2": 33
+    },
+    {
+      "name": "small-electric-pole",
+      "x2": -31,
+      "y2": 33
+    },
+    {
+      "name": "small-electric-pole",
+      "x2": -39,
+      "y2": 25
+    },
+    {
+      "name": "small-electric-pole",
+      "x2": -39,
+      "y2": 13
+    },
+    {
+      "name": "small-electric-pole",
+      "x2": -39,
+      "y2": 1
+    },
+    {
+      "name": "small-electric-pole",
+      "x2": -49,
+      "y2": -9
+    },
+    {
+      "name": "small-electric-pole",
+      "x2": 21,
+      "y2": 45
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": -17,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": -15,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": -13,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": -11,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": -9,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": -7,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": -5,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": -3,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": -1,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 1,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 3,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 5,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 7,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 9,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 11,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 13,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 15,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 17,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 19,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 21,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 23,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 25,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 27,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 29,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 31,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 33,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -43,
+      "y2": 35,
+      "direction": "north"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -41,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -39,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -37,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -35,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -33,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -31,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -29,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -27,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -25,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -23,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -21,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -19,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -17,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -15,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -13,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -11,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -9,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -7,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -5,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -3,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": -1,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": 1,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": 3,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": 5,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": 7,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": 9,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": 11,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": 13,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": 15,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": 17,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": 19,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": 21,
+      "y2": 35,
+      "direction": "west"
+    },
+    {
+      "name": "transport-belt",
+      "x2": 23,
+      "y2": 35,
+      "direction": "west"
+    }
+  ],
+  "recipes": [
+    {
+      "name": "assembling-machine-1",
+      "x2": -53,
+      "y2": -17,
+      "recipe": "firearm-magazine"
+    }
+  ]
+}

@@ -29,6 +29,10 @@ commands on a dedicated connection. It never repeats a gameplay mutation and
 is excluded from default effect grants. Both the explicit grant and consent
 flag are required. Normal commands retain their no-retry behavior.
 
+The current fresh-world layout and operational limits are recorded in
+[`scenarios/fresh-base/README.md`](scenarios/fresh-base/README.md). Older
+save-specific construction scenarios belong to the archived world.
+
 ## Run locally
 
 Requires Elixir 1.18+ with OTP 27+ and the Factorio 2.1.24 Linux headless distribution unpacked into `factorio/`. There are no Hex dependencies. The game, saves, build output, and local credentials are ignored by version control.
