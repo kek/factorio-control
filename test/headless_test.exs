@@ -3,7 +3,7 @@ defmodule FactorioControl.HeadlessTest do
   alias FactorioControl.{Eyg, Server, TestHeadless}
   @moduletag :headless
   @moduletag timeout: 180_000
-  @cases ~w(transport-tiers-qualities-and-modded-prototypes transport-invalid-targets-and-bounds quality-agnostic-entity-and-machine-inspection inspection-privacy-ambiguity-and-range corpse-inspection-privacy-and-proximity exact-quality-and-legacy no-quality-substitution rare-partial-capacity partial-ammunition blueprint-metadata equipped-armor character-equipment-native-transfers damaged-stack logistic-container-inventories machine-module-transfers inventory-permission-guards dry-fluid-capable-assembler-tiers nonempty-input-output-and-modules native-progress-and-recipe-locks fluid-residue-is-preserved unsupported-and-locked-recipes fractional-tree-mining)
+  @cases ~w(transport-tiers-qualities-and-modded-prototypes transport-invalid-targets-and-bounds quality-agnostic-entity-and-machine-inspection inspection-privacy-ambiguity-and-range corpse-inspection-privacy-and-proximity exact-quality-and-legacy no-quality-substitution rare-partial-capacity partial-ammunition blueprint-metadata equipped-armor character-equipment-native-transfers damaged-stack logistic-container-inventories machine-module-transfers inventory-permission-guards dry-fluid-capable-assembler-tiers nonempty-input-output-and-modules native-progress-and-recipe-locks fluid-residue-is-preserved unsupported-and-locked-recipes fractional-tree-mining native-character-combat)
 
   test "offline engine invariants and captured native receipts conform to typed EYG" do
     project = Path.expand("..", __DIR__)
@@ -96,6 +96,48 @@ defmodule FactorioControl.HeadlessTest do
         File.write!(prefix <> ".eyg", Eyg.Evaluator.program(source, %{"request" => input}))
         File.write!(prefix <> ".jsonl", Enum.map_join(trace, "\n", &JSON.encode!/1) <> "\n")
       end
+
+      combat =
+        TestHeadless.read_json!(Path.join(run.artifacts, "script-output/native-combat.json"))
+
+      attack_source =
+        "match perform Attack(input.request) {Ok(s)->{{rounds:s.rounds_used,gone:s.target_gone,error:\"\"}} Error(e)->{{rounds:0,gone:False({}),error:e}}}"
+
+      assert {:ok, %{"value" => %{"rounds" => rounds, "gone" => true, "error" => ""}}, trace} =
+               Eyg.run(nil, attack_source,
+                 effects: ["Attack"],
+                 inputs: %{"request" => combat["request"]["args"]},
+                 call: fn :attack, args ->
+                   assert args == combat["request"]["args"]
+                   {:ok, combat["response"]}
+                 end,
+                 await: fn id ->
+                   assert id == combat["terminal"]["data"]["id"]
+                   {:ok, combat["terminal"]}
+                 end
+               )
+
+      assert rounds > 0
+
+      File.write!(
+        Path.join(run.artifacts, "combat.eyg"),
+        Eyg.Evaluator.program(attack_source, %{"request" => combat["request"]["args"]})
+      )
+
+      File.write!(
+        Path.join(run.artifacts, "combat.jsonl"),
+        Enum.map_join(trace, "\n", &JSON.encode!/1) <> "\n"
+      )
+
+      assert {:ok, %{"value" => %{"enemies" => enemies}}, _} =
+               Eyg.run(
+                 nil,
+                 "match perform InspectCombat({radius:16}) {Ok(s)->{{enemies:s.enemies}} Error(_)->{{enemies:[]}}}",
+                 effects: ["InspectCombat"],
+                 call: fn :inspect_combat, %{"radius" => 16} -> {:ok, combat["observation"]} end
+               )
+
+      assert Enum.any?(enemies, &(&1["unit_number"] == combat["request"]["args"]["unit_number"]))
 
       File.write!(
         Path.join(run.artifacts, "verification.json"),

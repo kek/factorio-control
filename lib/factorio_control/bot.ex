@@ -2,7 +2,7 @@ defmodule FactorioControl.Bot do
   @moduledoc "JSON adapter to the mod's constrained bot interface."
   alias FactorioControl.Rcon
 
-  @methods ~w(inspect_equipment equip spawn inspect inspect_entity inspect_simulation inspect_recipe walk_to mine craft stop action build rotate transfer transfer_quality inspect_area inspect_water inspect_technology inspect_machine inspect_transport research set_recipe connect_power mine_object hand_craft set_chest_limit build_underground)
+  @methods ~w(inspect_combat attack inspect_equipment equip spawn inspect inspect_entity inspect_simulation inspect_recipe walk_to mine craft stop action build rotate transfer transfer_quality inspect_area inspect_water inspect_technology inspect_machine inspect_transport research set_recipe connect_power mine_object hand_craft set_chest_limit build_underground)
 
   @doc "Validate a bot selector before any request is sent."
   def validate_name!(name) do

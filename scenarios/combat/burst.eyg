@@ -1,0 +1,26 @@
+// Bounded combat building block, not a background combat controller.
+// InspectEquipment and equip legitimate gun/ammo before using this example.
+// It fires at most one 60-tick burst, then returns control for fresh observation.
+match perform InspectCombat({radius:32}) {
+ Ok(s) -> {
+  match !int_compare(s.health_milli,150000) {
+   Lt(_) -> {{success:False({}),engaged:False({}),rounds:0,target_gone:False({}),error:"Low health: choose an inspected retreat route"}}
+   | (_) -> {
+    let id = !list_fold(s.enemies,0,(enemy,chosen)->{
+     match !equal(chosen,0) {
+      True(_) -> {match enemy.can_shoot {True(_) -> {enemy.unit_number} | (_) -> {chosen}}}
+      | (_) -> {chosen}
+     }
+    })
+    match !equal(id,0) {
+     True(_) -> {{success:True({}),engaged:False({}),rounds:0,target_gone:False({}),error:""}}
+     | (_) -> {match perform Attack({unit_number:id,gun_slot:s.selected_gun_slot,ticks:60}) {
+      Ok(r) -> {{success:True({}),engaged:True({}),rounds:r.rounds_used,target_gone:r.target_gone,error:""}}
+      Error(e) -> {{success:False({}),engaged:False({}),rounds:0,target_gone:False({}),error:e}}
+     }}
+    }
+   }
+  }
+ }
+ Error(e) -> {{success:False({}),engaged:False({}),rounds:0,target_gone:False({}),error:e}}
+}

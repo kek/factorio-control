@@ -7,7 +7,7 @@ defmodule FactorioControl.Eyg.Adapter do
   alias FactorioControl.{Bot, Eyg, Rcon}
 
   # Deliberately enumerated: adding a host effect never silently grants it here.
-  @effects ~w(InspectEquipment Equip DescribeEffect Inspect InspectBot InspectEntity InspectResources InspectAction
+  @effects ~w(InspectCombat Attack InspectEquipment Equip DescribeEffect Inspect InspectBot InspectEntity InspectResources InspectAction
     InspectSimulation InspectRecipe InspectArea InspectTransport InspectWater
     InspectTechnology InspectMachine Craft WalkTo Mine Rotate Build Transfer
     TransferQuality Wait Stop Research SetChestLimit BuildUnderground SetRecipe

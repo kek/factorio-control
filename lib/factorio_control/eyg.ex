@@ -181,6 +181,7 @@ defmodule FactorioControl.Eyg do
     }
     |> Map.merge(FactorioControl.Eyg.Expansion.contracts())
     |> Map.merge(FactorioControl.Eyg.Equipment.contracts())
+    |> Map.merge(FactorioControl.Eyg.Combat.contracts())
     |> Map.merge(FactorioControl.Eyg.Memory.contracts())
   end
 
@@ -225,7 +226,7 @@ defmodule FactorioControl.Eyg do
     call = fn method, args ->
       # Record the attempt before calling the game: a handler can time out while
       # the request is in flight, before an acceptance receipt is available.
-      if method in [:walk_to, :mine, :mine_object, :craft, :hand_craft],
+      if method in [:walk_to, :mine, :mine_object, :craft, :hand_craft, :attack],
         do: emit.(%{type: "action_submission", method: to_string(method)})
 
       result = raw_call.(method, args)
@@ -267,6 +268,9 @@ defmodule FactorioControl.Eyg do
             effect in FactorioControl.Eyg.Memory.effects() ->
               FactorioControl.Eyg.Memory.handle(effect, argument, Keyword.get(opts, :memory_root))
 
+            effect in ["InspectCombat", "Attack"] ->
+              FactorioControl.Eyg.Combat.handle(effect, argument, call, await)
+
             effect in ["InspectEquipment", "Equip"] ->
               FactorioControl.Eyg.Equipment.handle(effect, argument, call)
 
@@ -305,7 +309,7 @@ defmodule FactorioControl.Eyg do
         :unconfirmed
 
       %{type: "game_receipt", method: method, result: %{response: %{"ok" => false}}}, pending
-      when method in ["walk_to", "mine", "mine_object", "craft", "hand_craft"] and
+      when method in ["walk_to", "mine", "mine_object", "craft", "hand_craft", "attack"] and
              not is_nil(pending) ->
         nil
 
@@ -315,7 +319,7 @@ defmodule FactorioControl.Eyg do
         result: %{response: %{"ok" => true, "data" => %{"id" => id}}}
       },
       pending
-      when method in ["walk_to", "mine", "mine_object", "craft", "hand_craft"] and
+      when method in ["walk_to", "mine", "mine_object", "craft", "hand_craft", "attack"] and
              not is_nil(pending) ->
         {:accepted, id}
 

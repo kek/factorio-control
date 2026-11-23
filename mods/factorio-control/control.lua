@@ -91,18 +91,31 @@ local function undamaged(inventory, item)
     end
   end
 end
+local function ammo_rounds(c, slot)
+  local inv = c.get_inventory(defines.inventory.character_ammo)
+  local s = inv and inv[slot]
+  if not s or not s.valid_for_read then return 0 end
+  return (s.count - 1) * s.prototype.magazine_size + s.ammo
+end
+local function combat_target(c, e)
+  return e and e.valid and e.force.name == 'enemy' and not c.force.get_friend(e.force)
+    and not c.force.get_cease_fire(e.force) and e.health and e.health > 0
+    and (e.type == 'unit' or e.type == 'turret' or e.type == 'unit-spawner')
+end
 local function halt()
   local c = state().character
   if c and c.valid then
     c.walking_state = {walking = false}
     c.mining_state = {mining = false}
+    if defines.shooting then c.shooting_state = {state = defines.shooting.not_shooting, position = c.position} end
     c.clear_selected_entity()
   end
 end
 local function public_action(a)
   return {id = a.id, kind = a.kind, status = a.status, started_tick = a.started_tick,
     finished_tick = a.finished_tick, deadline_tick = a.deadline_tick, error = a.error,
-    position = a.position, count = a.count}
+    position = a.position, count = a.count, target_gone = a.target_gone,
+    initial_health_milli = a.initial_health_milli, final_health_milli = a.final_health_milli}
 end
 local function report_hand_craft(c, a)
   -- Standalone character queues do not report force production like player
@@ -126,6 +139,11 @@ local function finish(status, code, message)
   local b = state()
   local a = b.active
   if not a then return end
+  if a.kind == 'attack' and b.character and b.character.valid then
+    a.count = math.max(0, a.initial_rounds - ammo_rounds(b.character, a.gun_slot))
+    a.target_gone = not (a.target and a.target.valid)
+    a.final_health_milli = a.target_gone and 0 or math.floor((a.target.health or 0) * 1000 + 0.5)
+  end
   halt()
   if a.kind == "hand-craft" and status ~= "completed" and b.character and b.character.valid then
     local c = b.character
@@ -292,6 +310,49 @@ function methods.equip(args)
   -- Native transfer preserves quality, partial magazines, durability and grids.
   check(dst.transfer_stack(src), "transfer_rejected", "Native equipment transfer rejected")
   return {count = count}
+end
+
+function methods.inspect_combat(args)
+  local c = character()
+  local radius = integer(args.radius, 'radius', 1, 64)
+  local found = c.surface.find_entities_filtered{position=c.position,radius=radius,force='enemy',limit=33}
+  local enemies = {}
+  for i=1,math.min(#found,32) do
+    local e = found[i]
+    if combat_target(c,e) and e.unit_number then
+      enemies[#enemies+1] = {unit_number=e.unit_number,name=e.name,x_milli=math.floor(e.position.x*1000+0.5),
+        y_milli=math.floor(e.position.y*1000+0.5),health_milli=math.floor(e.health*1000+0.5),can_shoot=c.can_shoot(e,e.position)}
+    end
+  end
+  return {health=c.health,selected_gun_slot=c.selected_gun_index or 0,enemies=enemies,truncated=#found>32}
+end
+function methods.attack(args)
+  local c = character(); idle()
+  local id = integer(args.unit_number, 'unit_number', 1, 9007199254740991)
+  local slot = integer(args.gun_slot, 'gun_slot', 1, 3)
+  local ticks = integer(args.ticks, 'ticks', 1, 300)
+  -- Unit prototypes need not carry the get-by-unit-number flag. Resolve only
+  -- within a bounded local enemy survey, never through an unbounded world scan.
+  local e
+  for _, candidate in ipairs(c.surface.find_entities_filtered{position=c.position,radius=64,force='enemy',limit=129}) do
+    if candidate.unit_number == id then e = candidate; break end
+  end
+  check(combat_target(c,e) and e.surface == c.surface, 'invalid_target', 'Expected a live hostile enemy unit, turret or spawner on this surface')
+  local guns = c.get_inventory(defines.inventory.character_guns)
+  local gun = guns and guns[slot]
+  check(gun and gun.valid_for_read, 'no_weapon', 'Equip a gun in the chosen slot first')
+  local rounds = ammo_rounds(c,slot)
+  check(rounds>0, 'no_ammo', 'Equip real ammunition in the corresponding slot first')
+  local old_slot = c.selected_gun_index
+  c.selected_gun_index = slot
+  local permitted = c.can_shoot(e,e.position)
+  c.selected_gun_index = old_slot
+  check(permitted,'cannot_shoot','Native weapon/ammo compatibility and range check rejected the target')
+  local a = start('attack',{timeout_ticks=ticks+1})
+  a.target,a.gun_slot,a.end_tick,a.initial_rounds = e,slot,game.tick+ticks,rounds
+  a.count,a.initial_health_milli,a.final_health_milli,a.target_gone = 0,math.floor(e.health*1000+0.5),math.floor(e.health*1000+0.5),false
+  c.selected_gun_index = slot
+  return public_action(a)
 end
 
 function methods.inspect(args)
@@ -633,6 +694,14 @@ local function tick()
     local horizontal = math.abs(dx) > 0.2 and (dx > 0 and "east" or "west") or ""
     local vertical = math.abs(dy) > 0.2 and (dy > 0 and "south" or "north") or ""
     c.walking_state = {walking = true, direction = directions[vertical .. horizontal]}
+  elseif a.kind == 'attack' then
+    if not a.target.valid or game.tick >= a.end_tick then finish('completed'); return end
+    if not combat_target(c,a.target) then finish('failed','invalid_target','Target is no longer a permitted enemy'); return end
+    if ammo_rounds(c,a.gun_slot) == 0 then finish('completed'); return end
+    c.selected_gun_index = a.gun_slot
+    c.update_selected_entity(a.target.position)
+    if c.selected ~= a.target then finish('failed','target_lost','Could not select the explicit hostile target'); return end
+    c.shooting_state = {state=defines.shooting.shooting_selected,position=a.target.position}
   elseif a.kind == "craft" then
     if game.tick < a.next_tick then return end
     for _, i in pairs(a.ingredients) do

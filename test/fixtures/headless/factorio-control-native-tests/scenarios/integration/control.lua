@@ -531,12 +531,34 @@ local function run()
 end
 
 local mining, mining_index = nil, 0
+local combat
+local function begin_combat()
+  current = 'native-character-combat'
+  actor.teleport({20,18})
+  local guns = actor.get_inventory(defines.inventory.character_guns)
+  local ammo = actor.get_inventory(defines.inventory.character_ammo)
+  guns.clear(); ammo.clear()
+  local target = assert(actor.surface.create_entity{name='small-biter',position={25,18},force='enemy'})
+  local envelope = {method='attack',bot='default',args={unit_number=target.unit_number,gun_slot=1,ticks=180}}
+  local denied = remote.call('bot','request',envelope)
+  eq(denied.ok,false); eq(denied.error.code,'no_weapon')
+  guns[1].set_stack{name='pistol',count=1}
+  denied = remote.call('bot','request',envelope)
+  eq(denied.ok,false); eq(denied.error.code,'no_ammo')
+  ammo[1].set_stack{name='firearm-magazine',count=3}
+  local observation = remote.call('bot','request',{method='inspect_combat',bot='default',args={radius=16}})
+  assert(observation.ok,helpers.table_to_json(observation))
+  local response = remote.call('bot','request',envelope)
+  assert(response.ok,helpers.table_to_json(response))
+  combat = {target=target,request=envelope,response=response,observation=observation}
+  return true
+end
 local function begin_fractional_mining()
   mining_index = mining_index + 1
   local name = ({'dead-dry-hairy-tree', 'tree-09'})[mining_index]
   if not name then
     completed[#completed + 1] = 'fractional-tree-mining'
-    return false
+    return begin_combat()
   end
   current = 'fractional-tree-mining'
   actor.teleport({20,18})
@@ -563,6 +585,32 @@ script.on_event(defines.events.on_tick, function()
       storage.native_tests_started = true
       run()
       return not begin_fractional_mining()
+    end
+    if combat then
+      if combat.cancel_action then
+        if game.tick - combat.cancel_tick < 5 then return false end
+        local stopped=remote.call('bot','request',{method='stop',bot='default',args={}}); assert(stopped.ok)
+        eq(actor.shooting_state.state,defines.shooting.not_shooting)
+        local terminal=remote.call('bot','request',{method='action',bot='default',args={id=combat.cancel_action}})
+        eq(terminal.data.status,'cancelled')
+        combat.cancel_target.destroy()
+        completed[#completed+1]='native-character-combat'
+        return true
+      end
+      local response = remote.call('bot','request',{method='action',args={id=combat.response.data.id},bot='default'})
+      assert(response.ok,helpers.table_to_json(response))
+      if response.data.status=='running' then return false end
+      eq(response.data.status,'completed')
+      assert(response.data.count>0,'real ammunition must be consumed')
+      assert(not combat.target.valid,'native weapon damage must kill the fixture biter')
+      eq(response.data.target_gone,true)
+      eq(actor.shooting_state.state,defines.shooting.not_shooting)
+      helpers.write_file('native-combat.json',helpers.table_to_json{request=combat.request,response=combat.response,terminal=response,observation=combat.observation},false)
+      local other = assert(actor.surface.create_entity{name='big-biter',position={25,18},force='enemy'})
+      local burst=remote.call('bot','request',{method='attack',bot='default',args={unit_number=other.unit_number,gun_slot=1,ticks=300}})
+      assert(burst.ok)
+      combat.cancel_action,combat.cancel_target,combat.cancel_tick = burst.data.id,other,game.tick
+      return false
     end
     local response = remote.call('bot','request',{method='action',args={id=mining.response.data.id},bot='default'})
     assert(response.ok, helpers.table_to_json(response))
