@@ -181,6 +181,11 @@ moving on, and size each step by the calculation formulas in the reference.
 - Inventory stacks, resource amounts, reach, placement alignment and collisions
   constrain actions. Survey routes and obstacles through EYG before construction.
   Walking is not general pathfinding; use observed clear waypoints.
+- Transfers use direction `take` (entity to bot) or `give` (bot to entity).
+  Storage chests use inventory `main`; machine inventories depend on the target
+  and purpose (`input`, `output`, `fuel`, `ammo` or `modules`). Inspect the target
+  and current contract rather than treating one successful inventory selection as
+  universal. Verify the transfer receipt and resulting inventories.
 - Input positions use integer **half tiles** (`x2:51` is x=25.5). Observations use
   integer **thousandths** (`x_milli:25500` is x=25.5). Convert explicitly; odd-width
   starter entities use half-tile centers and even-width ones integer centers.
@@ -194,9 +199,41 @@ moving on, and size each step by the calculation formulas in the reference.
 - Prefer physical automation—belts, inserters, buffers and self-fueling feedback—
   for requests to automate production. Clearly distinguish autonomous machinery
   from a one-off bot service run or a proposed background controller.
+- Continue bounded work autonomously after verifying each intermediate milestone;
+  proceed to the next unfinished requirement without asking for permission again
+  within the authorized scope. Stop for uncertain outcomes, safety concerns,
+  exhausted resources requiring a user decision, or a demonstrated capability gap,
+  not merely because a useful intermediate milestone is reached.
+- For sustained automation, trace every required ingredient from operating
+  extraction through processing and transport to consumption, including fuel and
+  power supply. Manually stocked buffers are temporary construction aids, not
+  completion. Verify replenishment and fresh output without further bot deliveries;
+  research progress alone can come from buffered stock.
+- Resolve recoverable syntax, argument, navigation and inspection errors by
+  inspecting confirmed state and adapting the plan. Distinguish an invalid program
+  or argument from a missing capability. Report a capability blocker with the
+  failed effect, observed error and specific missing observation/action; never
+  replay uncertain mutations to diagnose it.
+- Before ending, check every requested acceptance criterion. State what is
+  verified, what remains unfinished and the concrete reason work cannot continue.
 
 ## EYG execution discipline
 
+- Every EYG `match` branch must return the same record fields with matching field
+  types. An `Ok` branch returning `{bot: s.bot}` and an `Error` branch returning
+  `{error: e}` will fail type checking. Project the observation fields you need
+  and supply typed defaults on error, for example:
+
+  ```eyg
+  match perform InspectBot({}) {
+    Ok(s) -> {{success: True({}), inventory: s.bot.inventory, x_milli: s.bot.x_milli, y_milli: s.bot.y_milli, error: ""}}
+    Error(e) -> {{success: False({}), inventory: [], x_milli: 0, y_milli: 0, error: e}}
+  }
+  ```
+
+  The same rule applies to nested matches and `DescribeEffect`. Type-check
+  rejection precedes effect dispatch; correct mismatched branch shapes before
+  treating it as an endpoint or grant problem. Retain the failed source/trace.
 - Handle `Result` values explicitly. Chain dependent mutations so the first error
   stops later steps. Return plain JSON-compatible records with top-level
   `success` and `error`; raw `Ok`/`Error` variants cannot be returned as JSON.
