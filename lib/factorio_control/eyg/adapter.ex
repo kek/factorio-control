@@ -96,8 +96,29 @@ defmodule FactorioControl.Eyg.Adapter do
               not success
             )
 
-          {:ok, %{"ok" => false, "error" => error}, _} ->
-            response(false, error, nil, dir, true)
+          {:ok, %{"ok" => false, "error" => error}, events} ->
+            # A sole evaluator rejection receipt proves no effect was requested.
+            # Retain uncertainty for errors after any host dispatch.
+            pre_dispatch = match?([%{"type" => "result", "ok" => false}], events)
+            response(false, error, nil, dir, not pre_dispatch)
+
+          {:error, {:connection_failed, reason}, []} ->
+            message =
+              case reason do
+                :econnrefused ->
+                  "RCON connection refused; check server and operator endpoint"
+
+                :authentication_failed ->
+                  "RCON authentication failed; check operator password"
+
+                :timeout ->
+                  "RCON connection/authentication timed out; check server and operator endpoint"
+
+                _ ->
+                  "RCON connection failed; check server, endpoint and credentials"
+              end
+
+            response(false, message <> "; no program effects dispatched", nil, dir, false)
 
           {:error, _, _} ->
             response(
@@ -130,7 +151,7 @@ defmodule FactorioControl.Eyg.Adapter do
   end
 
   defp live(code, config, opts) do
-    case Rcon.start_link(host: config.host, port: config.port, password: config.password) do
+    case Rcon.start(host: config.host, port: config.port, password: config.password) do
       {:ok, client} ->
         try do
           Eyg.run(client, code, opts)
@@ -138,8 +159,8 @@ defmodule FactorioControl.Eyg.Adapter do
           Rcon.close(client)
         end
 
-      {:error, _} ->
-        {:error, :connection_failed, []}
+      {:error, reason} ->
+        {:error, {:connection_failed, reason}, []}
     end
   end
 

@@ -14,6 +14,9 @@ defmodule FactorioControl.Rcon do
   @max_response 16 * 1024 * 1024
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+  @doc "Start an unlinked connection for a one-shot adapter that owns its VM lifetime."
+  def start(opts), do: GenServer.start(__MODULE__, opts)
   def close(client), do: GenServer.stop(client)
 
   @doc "Run administrator Lua; gameplay callers should use FactorioControl.Bot.call/4."

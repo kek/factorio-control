@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {EventEmitter} from "node:events";
 import {PassThrough} from "node:stream";
-import {install, programExamples} from "./index.js";
+import {install, programExamples} from "./core.js";
 import {runProgram} from "./runner.js";
 
 function fakeSpawn(result, seen, hang = false) {

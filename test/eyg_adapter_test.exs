@@ -145,10 +145,11 @@ defmodule FactorioControl.Eyg.AdapterTest do
       System.cmd("node", [
         "--input-type=module",
         "-e",
-        "import {programExamples} from './integrations/pi/index.js'; console.log(JSON.stringify(programExamples))"
+        "import {programExamples} from './integrations/pi/core.js'; console.log(JSON.stringify(programExamples))"
       ])
 
     examples = JSON.decode!(json)
+    config = Map.put(config, :memory_root, Path.join(config.artifact_root, "notes"))
 
     for {name, code} <- examples, fail_backend <- [false, true] do
       runner = fn source, _, opts ->
@@ -271,6 +272,86 @@ defmodule FactorioControl.Eyg.AdapterTest do
     assert result.recovery_required
     assert_received :spawn_attempted
     refute_received :spawn_attempted
+  end
+
+  test "authentication rejection is a pre-dispatch failure", %{config: config} do
+    {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
+    {:ok, {_, port}} = :inet.sockname(listener)
+
+    task =
+      Task.async(fn ->
+        {:ok, socket} = :gen_tcp.accept(listener, 2000)
+        {:ok, _auth_request} = :gen_tcp.recv(socket, 0, 2000)
+
+        :ok =
+          :gen_tcp.send(
+            socket,
+            <<10::little-signed-32, -1::little-signed-32, 2::little-signed-32, 0, 0>>
+          )
+
+        :gen_tcp.close(socket)
+      end)
+
+    try do
+      result =
+        Adapter.execute(%{"program" => "perform InspectBot({})"}, %{
+          config
+          | host: "127.0.0.1",
+            port: port
+        })
+
+      refute result.success
+      refute result.recovery_required
+      assert result.error =~ "authentication failed"
+      trace = File.read!(Path.join(result.artifact_dir, "trace.jsonl"))
+      assert trace =~ "adapter_result"
+      refute trace =~ "effect-request"
+      Task.await(task, 3000)
+    after
+      :gen_tcp.close(listener)
+    end
+  end
+
+  test "connection refusal preserves terminal trace and does not claim mutation uncertainty", %{
+    config: config
+  } do
+    {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
+    {:ok, {_, port}} = :inet.sockname(listener)
+    :gen_tcp.close(listener)
+
+    result =
+      Adapter.execute(%{"program" => "perform InspectBot({})"}, %{
+        config
+        | host: "127.0.0.1",
+          port: port
+      })
+
+    refute result.success
+    refute result.recovery_required
+    assert result.error =~ "connection refused"
+    assert result.error =~ "no program effects dispatched"
+    trace = File.read!(Path.join(result.artifact_dir, "trace.jsonl"))
+    assert trace =~ "adapter_result"
+    refute trace =~ "effect-request"
+    refute trace =~ config.password
+  end
+
+  test "parse/type rejection before dispatch does not require world recovery", %{config: config} do
+    runner = fn code, _, opts ->
+      Eyg.run(nil, code, Keyword.put(opts, :call, fn _, _ -> flunk("no dispatch") end))
+    end
+
+    for code <- [
+          "let a = 1; a",
+          "match perform ReadNotes({kind:\"checkpoint\",limit:1}) {Ok(s)->{{notes:s}} Error(_)->{{notes:[]}}}"
+        ] do
+      result = Adapter.execute(%{"program" => code}, config, runner)
+      refute result.success
+      refute result.recovery_required
+      trace = File.read!(Path.join(result.artifact_dir, "trace.jsonl"))
+      refute trace =~ "effect-request"
+      assert trace =~ "adapter_result"
+    end
   end
 
   test "failure never retries and demands recovery", %{config: config} do
