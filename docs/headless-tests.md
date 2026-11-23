@@ -1,6 +1,6 @@
 # Offline native engine tests
 
-Run explicitly with the pinned Factorio **2.1.24** headless distribution:
+Run explicitly with the pinned Factorio **2.1.25** headless distribution:
 
 ```sh
 mix test --include headless test/headless_test.exs
@@ -20,7 +20,7 @@ The harness creates a new, exclusive directory in the OS temporary directory,
 copies the production mod and the test-only scenario package, and supplies its
 own config and mod list. The read-data directory is the headless distribution;
 all writable paths point into scratch space. Quality/recycler are enabled, while
-Space Age and elevated rails are disabled. Base 2.1.24 and the fixture scenario's
+Space Age and elevated rails are disabled. Base 2.1.25 and the fixture scenario's
 explicit test argument are checked before fixture creation.
 
 It invokes only `--test-scenario factorio-control-native-tests/integration`, not

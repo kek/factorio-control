@@ -1,6 +1,6 @@
 # Factorio Control design
 
-This is the maintained design reference. The current implementation targets **Factorio 2.1.24**, the version used for the live proof of concept. Earlier plans targeted 2.0; compatibility with 2.0 is not claimed. The host requires Elixir 1.18+ and OTP 27+ and has no external dependencies.
+This is the maintained design reference. The current implementation targets **Factorio 2.1.25**, validated in the isolated native engine suite; the live proof of concept used 2.1.24. Earlier plans targeted 2.0; compatibility with 2.0 is not claimed. The host requires Elixir 1.18+ and OTP 27+ and has no external dependencies.
 
 ## Goal and architecture
 

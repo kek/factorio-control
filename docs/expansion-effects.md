@@ -1,6 +1,6 @@
 # Bounded factory expansion effects
 
-Target: Factorio 2.1.24, factorio-control 0.3.0. Contracts are defined by
+Target: Factorio 2.1.25, factorio-control 0.3.0. Contracts are defined by
 `FactorioControl.Eyg.contracts/0` and `FactorioControl.Eyg.Expansion.contracts/0`.
 Gameplay still goes exclusively through EYG; no arbitrary Lua or item/research
 grants are exposed. Validate the headless server and typed interface, not the

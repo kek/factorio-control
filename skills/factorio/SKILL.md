@@ -19,6 +19,30 @@ maintenance, not an alternate gameplay-agent interface. Capability development
 uses a separate privileged coding session, not tools exposed to the gameplay
 agent. `DescribeEffect` provides host-local schema discovery through EYG.
 
+## Character equipment
+
+Use `InspectEquipment({})` to observe `slots` (armor, guns, ammo, including
+empty slots) and up to 32 `candidates` in the bot's main inventory. Entries have
+`inventory`, 1-based `slot`, `name`, `quality`, `count`, `health_milli` and `ammo`
+(remaining rounds in the first magazine, zero for non-ammo). Empty slots have
+empty names and zero counts. `truncated` applies to candidates; do not assume
+an omitted item is absent when true. `empty_main_slots` lists up to 32 empty
+main-inventory slot indices for unequipping; `main_size` reports total main slots.
+
+Use `Equip({inventory:"armor",slot:1,main_slot:SOURCE_SLOT,direction:"equip"})`
+to move a real stack from the observed main-inventory slot into an empty equipment
+slot. Inventories are `armor`, `guns`, `ammo`; direction `unequip` reverses the
+transfer to an empty `main_slot`. No implicit swaps, equipment grants, selection
+of a different actor or item recreation are provided. Craft/collect equipment
+legitimately first. Inspect immediately before/after; inventory slot indices may
+change when other work sorts or changes inventory. Native transfers preserve
+quality, health, armour grids and partial magazines. Armour removal is rejected
+if inventory shrinkage could displace items; clear bonus slots first.
+
+Equipping does not add combat controls, ensure gun/ammo compatibility or make a
+route safe. Continue incremental terrain/threat inspection. On uncertain results,
+inspect equipment and inventory before further mutations, never blindly retry.
+
 ## Broad goals and durable learning
 
 Accept outcome goals such as "advance until logistic and construction bots are
@@ -28,7 +52,11 @@ within that scope. For robots, completion means producing both robot types,
 powering a roboport network, and demonstrating a logistic delivery and a
 construction job using legitimately produced materials. Verify that the required
 typed capabilities exist before promising demonstrations; develop missing effects
-in a separate development session, never simulate success. Avoid unrelated expansion.
+in a separate development session, never simulate success. A missing effect for a
+later milestone does not block currently available prerequisite or defence work.
+Record the gap in the checkpoint, continue useful independent work within scope,
+and stop only when the next useful work actually depends on the unavailable
+capability. Avoid unrelated expansion.
 
 Continue between milestones. A progress report is not a reason to end the task.
 For explicitly open-ended development, choose the next useful improvement after
@@ -216,6 +244,12 @@ moving on, and size each step by the calculation formulas in the reference.
   Establish armed coverage early: the game keeps running during code development
   and long tool calls. Reinspect health and inventories after long gaps; enemies
   can destroy stock and machinery while the agent is doing other work.
+- Scout incrementally from inspected safe terrain. Before leaving defended areas,
+  inspect reachable terrain and threats, check actor health, and preserve a safe
+  return route. An empty bounded resource survey justifies moving the survey,
+  not an uninspected long walk into unknown territory. Reinspect health and
+  threats between scouting legs; do not infer the cause or location of a death
+  from the last requested movement destination.
 - Inspect recipes before calculating materials. Craft intermediates explicitly:
   affordability covers directly available normal-quality ingredients, and craft
   counts are **recipe batches**, not necessarily output-item counts.
@@ -279,6 +313,10 @@ moving on, and size each step by the calculation formulas in the reference.
   stops later steps. Return plain JSON-compatible records with top-level
   `success` and `error`; raw `Ok`/`Error` variants cannot be returned as JSON.
   Inspect the result as well as the CLI exit status, especially for nested results.
+  Adapter `success: true` can contain a nested failed inspection; inspect each
+  required observation's `success`/`error` before using it. Never treat typed
+  defaults such as empty inventories or zero coordinates as observations after
+  an error. Propagate required substep failures into the top-level result.
 - Current host bounds: **100 effects/run**, positions within ±2,000,000 half tiles,
   action/wait durations **1–3600 ticks**, and craft counts **1–100 batches**.
   Other count limits and supported items are contract-specific. Check the source.
@@ -302,8 +340,21 @@ moving on, and size each step by the calculation formulas in the reference.
 - Confirmed preflight rejection with unchanged state can justify a corrected
   request. Partial mining/crafting, completed builds and transferred items must
   be accounted for before deciding the next action.
-- If the actor dies, use the explicitly granted `SpawnBot` to create an empty
-  replacement, then inspect and recover actual surviving NPC-corpse inventory
+- If `InspectBot` returns `no_character`, stop actor-dependent work. A successful
+  `InspectSimulation` does not establish that an actor exists. Schema discovery
+  with `DescribeEffect` establishes the contract, not permission to execute it;
+  do not probe an ungranted mutation merely because its schema is visible.
+  If the actor dies, use the explicitly granted `SpawnBot` to create an empty
+  replacement. The gameplay adapter grants it only when the operator launches Pi
+  with `FACTORIO_EYG_ALLOW_RESPAWN=true`; the tool description states whether it
+  is granted. After confirmed `no_character`, use a known safe requested position
+  via `SpawnBot({position:{x2:0,y2:0}})` (replace the example coordinates as needed).
+  Its non-collision search does not establish enemy safety. Inspect the returned
+  position, actor health and inventory before continuing. `existing: true` leaves
+  a living actor unchanged; it is not a teleport or inventory reset.
+  If the gameplay allowlist excludes it, checkpoint and request operator recovery
+  rather than bypassing the boundary. Then inspect and recover
+  actual surviving NPC-corpse inventory
   through typed transfers. Never regenerate the old inventory or replay crafting
   to replace it. Player-owned corpses and unsupported metadata must remain alone.
 - Use typed `Stop` when cancellation is appropriate and inspect its result. Host

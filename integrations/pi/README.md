@@ -19,6 +19,8 @@ configuration. Set these in the environment of the **Pi process**:
 - `FACTORIO_RCON_HOST`: defaults to `localhost`.
 - `FACTORIO_RCON_PORT`: defaults to `27015`.
 - `FACTORIO_BOT`: defaults to existing actor `default`.
+- `FACTORIO_EYG_ALLOW_RESPAWN`: defaults to disabled. Set exactly `true` to
+  explicitly authorize typed empty-actor creation/recovery for the configured bot.
 - `FACTORIO_EYG_ARTIFACT_ROOT`: defaults to `tmp/factorio-eyg` under the checkout.
   Use a trusted, private parent directory.
 
@@ -65,6 +67,52 @@ not delegate through Gondolin. Configure the checkout and endpoint for that
 actual machine; guest paths/endpoints are not host paths/endpoints. Do not load
 this alongside a general-purpose execution extension and assume sandbox routing.
 
+## Character equipment
+
+`InspectEquipment` and `Equip` are granted gameplay effects. Inspection returns
+installed armour/gun/ammunition slots and up to 32 candidate stacks in the bot's
+main inventory, with slot indices, quality, health and remaining magazine rounds.
+`Equip` transfers real stacks between an observed main slot and an empty equipment
+slot; `direction` is `equip` or `unequip`, inventory is `armor`, `guns` or `ammo`.
+Use `DescribeEffect` for exact schemas. No swaps or item grants are provided.
+Native transfers preserve metadata, including armour grids and partial magazines.
+Armour removal refuses inventory shrinkage that could displace carried items.
+These controls do not add combat actions or guarantee safe scouting.
+
+After deploying these Lua changes, restart the server through its existing
+Elixir Port owner to load the mod, then restart the gameplay Pi session to load
+the updated tool instructions and `/skill:factorio`. A graphical client may also
+need restarting; client verification is not required. Never start a second server
+or use live item-granting fixtures to test equipment. The isolated headless tests
+exercise native equipment transfers and replay their receipts through typed EYG.
+
+## Empty actor recovery
+
+`SpawnBot` already exists in the typed host/mod but is excluded from the gameplay
+adapter by default. To authorize it, export this before launching a new Pi session:
+
+```sh
+export FACTORIO_EYG_ALLOW_RESPAWN=true
+mix compile
+```
+
+This changes only the fixed grants selected by trusted operator configuration;
+programs cannot enable it or select a different bot. The tool advertises it only
+when enabled. No mod deployment or server restart is needed for this grant change.
+
+After `InspectBot` confirms `no_character`, the agent may use
+`SpawnBot({position:{x2:0,y2:0}})` with a known safe requested position in half
+tiles. The mod searches nearby for a non-colliding position; that is not a
+threat/safety assessment. Inspect the returned position, health and inventory.
+An existing living actor is returned unchanged (`existing: true`), not teleported
+or re-equipped. A replacement starts empty; the effect supplies no items and
+never recreates lost inventory. Recover actual surviving NPC-corpse items only
+through typed observations/transfers; leave player corpses alone.
+
+After an uncertain spawn, inspect actor state and retained receipts before any
+further attempt. Do not retry automatically. If recovery is disabled, checkpoint
+the blocker and ask the operator; do not bypass the gameplay boundary.
+
 ## Goals and memory
 
 Give the agent an outcome, not a construction script. It should choose intermediate
@@ -103,10 +151,11 @@ to retain note effect requests/results; do not put secrets in notes.
 
 ## Policy and protocol
 
-The fixed Elixir allowlist grants typed gameplay and observation effects. It
-excludes `ConfirmLuaConsole`, `SpawnBot`, general shell/filesystem/network effects and
-imports. Operator setup must supply an existing bot and an already acknowledged
-save. New effects do not become granted automatically. Programs cannot change
+The Elixir allowlist grants typed gameplay and observation effects, plus
+`SpawnBot` only with the explicit operator opt-in above. It excludes
+`ConfirmLuaConsole`, general shell/filesystem/network effects and imports.
+Operator setup must supply an existing bot (or explicitly enable empty recovery)
+and an already acknowledged save. New effects do not become granted automatically. Programs cannot change
 endpoint, bot, paths, grants or limits: only `program` is accepted.
 
 - UTF-8 source: 1–48000 bytes; encoded request: at most 64000 bytes.

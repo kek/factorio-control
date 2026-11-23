@@ -7,7 +7,7 @@ the gameplay agent has no shell or file tools.
 
 An Elixir host controls a character on a headless Factorio server through a small Lua mod. EYG programs can use the same constrained gameplay interface through an Elixir effect host that embeds the upstream EYG interpreter.
 
-**Status:** working prototype on **Factorio 2.1.24**. RCON, inspection, walking, mining, placement, inventory transfers, and iron production have been exercised on the local server. The EYG coal-to-iron program has also passed on the live server, including a depleted coal tile and a full furnace output. Recipe-driven crafting is available; pathfinding remains future work.
+**Status:** working prototype targeting **Factorio 2.1.25**, validated by isolated native engine tests and typed EYG receipt replay. RCON, inspection, walking, mining, placement, inventory transfers, and iron production were exercised on the local 2.1.24 server; the live installation must be upgraded separately. The EYG coal-to-iron program has also passed on the live server, including a depleted coal tile and a full furnace output. Recipe-driven crafting is available; pathfinding remains future work.
 
 > **Achievements:** using this mod on a save disables achievements. The host
 > sends Lua console commands (`/sc`) over RCON, which permanently disables
@@ -35,7 +35,7 @@ save-specific construction scenarios belong to the archived world.
 
 ## Run locally
 
-Requires Elixir 1.18+ with OTP 27+ and the Factorio 2.1.24 Linux headless distribution unpacked into `factorio/`. There are no Hex dependencies. The game, saves, build output, and local credentials are ignored by version control.
+Requires Elixir 1.18+ with OTP 27+ and the Factorio 2.1.25 Linux headless distribution unpacked into `factorio/`. There are no Hex dependencies. The game, saves, build output, and local credentials are ignored by version control.
 
 Create a save if needed:
 
