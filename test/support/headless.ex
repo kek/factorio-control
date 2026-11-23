@@ -12,7 +12,7 @@ defmodule FactorioControl.TestHeadless do
 
     unless File.regular?(binary) and File.dir?(Path.join(data, "quality")) and
              File.dir?(Path.join(data, "recycler")) do
-      raise "Install the Factorio 2.1.24 headless distribution with quality/recycler, or set FACTORIO_HEADLESS_BINARY to its real executable"
+      raise "Install the Factorio 2.1.25 headless distribution with quality/recycler, or set FACTORIO_HEADLESS_BINARY to its real executable"
     end
 
     base = Path.join(project, "tmp")
@@ -98,6 +98,15 @@ defmodule FactorioControl.TestHeadless do
     end
   end
 
+  def replay_source("InspectEquipment") do
+    """
+    match perform InspectEquipment(input.request) {
+      Ok(s) -> {{accepted: True({}), slots: s.slots, error: ""}}
+      Error(e) -> {{accepted: False({}), slots: [], error: e}}
+    }
+    """
+  end
+
   def replay_source("InspectTransport") do
     """
     match perform InspectTransport(input.request) {
@@ -111,7 +120,7 @@ defmodule FactorioControl.TestHeadless do
   def replay_source("InspectMachine"), do: observation_source("InspectMachine", "machine")
 
   def replay_source(effect)
-      when effect in ["Transfer", "TransferQuality", "SetRecipe", "SetChestLimit"] do
+      when effect in ["Equip", "Transfer", "TransferQuality", "SetRecipe", "SetChestLimit"] do
     """
     match perform #{effect}(input.request) {
       Ok(r) -> {{accepted: True({}), count: r.count, error: ""}}

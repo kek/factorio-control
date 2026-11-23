@@ -1,4 +1,4 @@
--- API target: Factorio 2.1.24. No network, file input, or per-tick world scans.
+-- API target: Factorio 2.1.25. No network, file input, or per-tick world scans.
 local methods = {}
 local directions = {
   north = defines.direction.north, northeast = defines.direction.northeast,
@@ -230,6 +230,68 @@ function methods.spawn(args)
   b.character = c
   halt()
   return {position = c.position, existing = false}
+end
+
+local equipment_inventories = {
+  armor = defines.inventory.character_armor,
+  guns = defines.inventory.character_guns,
+  ammo = defines.inventory.character_ammo
+}
+local function equipment_slot(inv, index, s)
+  return {inventory = inv, slot = index, name = s.valid_for_read and s.name or "",
+    quality = s.valid_for_read and s.quality.name or "", count = s.valid_for_read and s.count or 0,
+    health_milli = s.valid_for_read and math.floor((s.health or 1) * 1000 + 0.5) or 0,
+    ammo = s.valid_for_read and s.prototype.type == "ammo" and s.ammo or 0}
+end
+function methods.inspect_equipment(args)
+  local c = character()
+  local slots, candidates, truncated = {}, {}, false
+  for _, name in ipairs{"armor", "guns", "ammo"} do
+    local inv = c.get_inventory(equipment_inventories[name])
+    if inv then
+      for i = 1, #inv do slots[#slots + 1] = equipment_slot(name, i, inv[i]) end
+    end
+  end
+  local main = c.get_main_inventory()
+  local empty_main_slots = {}
+  for i = 1, #main do
+    local s = main[i]
+    if not s.valid_for_read and #empty_main_slots < 32 then empty_main_slots[#empty_main_slots + 1] = i end
+    if s.valid_for_read and (s.prototype.type == "armor" or s.prototype.type == "gun" or s.prototype.type == "ammo") then
+      if #candidates < 32 then candidates[#candidates + 1] = equipment_slot("main", i, s)
+      else truncated = true end
+    end
+  end
+  return {slots = slots, candidates = candidates, truncated = truncated, empty_main_slots = empty_main_slots, main_size = #main}
+end
+function methods.equip(args)
+  local c = character(); idle()
+  local kind = equipment_inventories[args.inventory]
+  check(kind, "invalid_argument", "inventory must be armor, guns or ammo")
+  check(args.direction == "equip" or args.direction == "unequip", "invalid_argument", "direction must be equip or unequip")
+  local gear, main = c.get_inventory(kind), c.get_main_inventory()
+  check(gear and main, "unsupported_inventory", "Character equipment inventory unavailable")
+  local index = integer(args.slot, "slot", 1, #gear)
+  local main_index = integer(args.main_slot, "main_slot", 1, math.min(#main, 1000))
+  local src, dst = main[main_index], gear[index]
+  if args.direction == "unequip" then src, dst = dst, src end
+  check(src.valid_for_read, "empty_source", "Source slot is empty")
+  check(not dst.valid_for_read, "occupied_destination", "Destination must be empty; no implicit swap")
+  local expected = ({armor = "armor", guns = "gun", ammo = "ammo"})[args.inventory]
+  check(src.prototype.type == expected, "invalid_item", "Item type does not match equipment inventory")
+  -- Refuse armor removal if shrinking the main inventory could displace items.
+  if args.inventory == "armor" and args.direction == "unequip" then
+    local bonus = src.prototype.get_inventory_size_bonus(src.quality)
+    local remaining = #main - bonus
+    check(main_index <= remaining, "inventory_full", "Choose a main slot retained after armor removal")
+    for i = math.max(1, remaining + 1), #main do
+      check(not main[i].valid_for_read, "inventory_full", "Empty bonus inventory slots before removing armor")
+    end
+  end
+  local count = src.count
+  -- Native transfer preserves quality, partial magazines, durability and grids.
+  check(dst.transfer_stack(src), "transfer_rejected", "Native equipment transfer rejected")
+  return {count = count}
 end
 
 function methods.inspect(args)

@@ -4,6 +4,6 @@
   "title": "Factorio Control offline native tests",
   "author": "Factorio Control contributors",
   "factorio_version": "2.1",
-  "dependencies": ["base = 2.1.24", "quality >= 2.1.24", "factorio-control = 0.3.0"],
+  "dependencies": ["base = 2.1.25", "quality >= 2.1.25", "factorio-control = 0.3.0"],
   "description": "Private test prototypes and offline scenarios, isolated from the ordinary server mod directory."
 }

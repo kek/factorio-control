@@ -23,6 +23,7 @@ defmodule FactorioControl.Eyg.AdapterTest do
           %{"program" => "{}", "effects" => ["ConfirmLuaConsole"]},
           %{"program" => "{}", "host" => "elsewhere"},
           %{"program" => "{}", "bot" => "other"},
+          %{"program" => "{}", "allow_respawn" => true},
           %{"program" => String.duplicate("a", 48_001)},
           %{},
           %{"program" => ""}
@@ -186,6 +187,90 @@ defmodule FactorioControl.Eyg.AdapterTest do
         assert result.value["error"] == ""
       end
     end
+  end
+
+  test "respawn is denied by default and granted only by operator boolean", %{config: config} do
+    code =
+      "match perform SpawnBot({position:{x2:80,y2:-66}}) {Ok(s)->{{success:True({}),existing:s.existing,x_milli:s.x_milli,error:\"\"}} Error(e)->{{success:False({}),existing:False({}),x_milli:0,error:e}}}"
+
+    denied_runner = fn source, _, opts ->
+      Eyg.run(nil, source, Keyword.put(opts, :call, fn _, _ -> flunk("no spawn grant") end))
+    end
+
+    for setting <- [nil, false, "true"] do
+      refute "SpawnBot" in Adapter.effects(Map.put(config, :allow_respawn, setting))
+
+      result =
+        Adapter.execute(
+          %{"program" => code},
+          Map.put(config, :allow_respawn, setting),
+          denied_runner
+        )
+
+      refute result.success
+    end
+
+    parent = self()
+
+    for existing <- [false, true] do
+      runner = fn source, _, opts ->
+        assert opts[:bot] == "default"
+        assert "SpawnBot" in opts[:effects]
+        refute "ConfirmLuaConsole" in opts[:effects]
+
+        call = fn :spawn, %{"position" => %{"x" => 40.0, "y" => -33.0}} ->
+          send(parent, :spawn_called)
+
+          {:ok,
+           %{
+             "ok" => true,
+             "tick" => 42,
+             "data" => %{"position" => %{"x" => 40, "y" => -33}, "existing" => existing}
+           }}
+        end
+
+        Eyg.run(nil, source, Keyword.put(opts, :call, call))
+      end
+
+      result =
+        Adapter.execute(%{"program" => code}, Map.put(config, :allow_respawn, true), runner)
+
+      assert result.success, inspect(result)
+      assert result.value["existing"] == existing
+      assert result.value["x_milli"] == 40_000
+      assert_received :spawn_called
+      refute_received :spawn_called
+      trace = File.read!(Path.join(result.artifact_dir, "trace.jsonl"))
+      assert trace =~ "SpawnBot"
+      assert trace =~ "game_receipt"
+    end
+  end
+
+  test "uncertain respawn is never retried", %{config: config} do
+    parent = self()
+
+    runner = fn source, _, opts ->
+      Eyg.run(
+        nil,
+        source,
+        Keyword.put(opts, :call, fn :spawn, _ ->
+          send(parent, :spawn_attempted)
+          {:error, :lost_response}
+        end)
+      )
+    end
+
+    result =
+      Adapter.execute(
+        %{"program" => "perform SpawnBot({position:{x2:0,y2:0}})"},
+        Map.put(config, :allow_respawn, true),
+        runner
+      )
+
+    refute result.success
+    assert result.recovery_required
+    assert_received :spawn_attempted
+    refute_received :spawn_attempted
   end
 
   test "failure never retries and demands recovery", %{config: config} do

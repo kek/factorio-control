@@ -7,14 +7,16 @@ defmodule FactorioControl.Eyg.Adapter do
   alias FactorioControl.{Bot, Eyg, Rcon}
 
   # Deliberately enumerated: adding a host effect never silently grants it here.
-  @effects ~w(DescribeEffect Inspect InspectBot InspectEntity InspectResources InspectAction
+  @effects ~w(InspectEquipment Equip DescribeEffect Inspect InspectBot InspectEntity InspectResources InspectAction
     InspectSimulation InspectRecipe InspectArea InspectTransport InspectWater
     InspectTechnology InspectMachine Craft WalkTo Mine Rotate Build Transfer
     TransferQuality Wait Stop Research SetChestLimit BuildUnderground SetRecipe
     ConnectPower MineObject HandCraft ReadNotes SaveCheckpoint ProposeLesson)
   @source_limit 48_000
 
-  def effects, do: @effects
+  def effects(config \\ %{}) do
+    if Map.get(config, :allow_respawn) == true, do: @effects ++ ["SpawnBot"], else: @effects
+  end
 
   def execute(request, config, runner \\ &live/3) do
     with :ok <- validate(request),
@@ -67,13 +69,13 @@ defmodule FactorioControl.Eyg.Adapter do
         type: "start",
         source_sha256: Base.encode16(:crypto.hash(:sha256, code), case: :lower),
         bot: config.bot,
-        effects: @effects,
+        effects: effects(config),
         timeout: 300_000,
         max_effects: 100
       })
 
       opts = [
-        effects: @effects,
+        effects: effects(config),
         bot: config.bot,
         timeout: 300_000,
         max_effects: 100,

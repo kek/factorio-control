@@ -35,6 +35,16 @@ test("registers only EYG and blocks all alternate tools even when reenabled", as
   await assert.rejects(() => tools[0].execute("id", {program: "{}", effects: []}), /Only program/);
 });
 
+test("respawn is advertised only with the exact operator opt-in", () => {
+  for (const setting of [undefined, "false", "1", "true"]) {
+    let tool;
+    install({registerTool: t => tool = t, on: () => {}, setActiveTools: () => {}}, async () => ({}), {FACTORIO_EYG_ALLOW_RESPAWN: setting});
+    const effects = tool.description.split("Effects: ")[1].split("\n")[0];
+    assert.equal(effects.includes("SpawnBot"), setting === "true");
+    assert.ok(tool.description.includes(setting === "true" ? "SpawnBot is granted" : "SpawnBot is not granted"));
+  }
+});
+
 test("fixed non-shell argv; source goes only to JSON stdin", async () => {
   const seen = [];
   const source = '"; touch /tmp/nope; $(whoami)"';

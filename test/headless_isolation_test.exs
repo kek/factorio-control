@@ -152,7 +152,7 @@ defmodule FactorioControl.HeadlessIsolationTest do
   end
 
   test "an explicit native run fails clearly without a compatible distribution" do
-    assert_raise RuntimeError, ~r/Factorio 2.1.24/, fn ->
+    assert_raise RuntimeError, ~r/Factorio 2.1.25/, fn ->
       TestHeadless.prepare("/not-a-project", "/not-a-factorio-binary")
     end
   end

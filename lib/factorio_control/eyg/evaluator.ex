@@ -321,7 +321,7 @@ defmodule FactorioControl.Eyg.Evaluator do
 
   defp validate_contracts!(contracts) do
     valid =
-      is_map(contracts) and map_size(contracts) <= 32 and
+      is_map(contracts) and map_size(contracts) <= 64 and
         Enum.all?(contracts, fn {name, contract} ->
           name =~ ~r/\A[A-Z][A-Za-z0-9]*\z/ and is_map(contract) and
             Map.keys(contract) |> Enum.sort() == ["argument", "result"] and

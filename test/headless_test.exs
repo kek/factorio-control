@@ -3,7 +3,7 @@ defmodule FactorioControl.HeadlessTest do
   alias FactorioControl.{Eyg, Server, TestHeadless}
   @moduletag :headless
   @moduletag timeout: 180_000
-  @cases ~w(transport-tiers-qualities-and-modded-prototypes transport-invalid-targets-and-bounds quality-agnostic-entity-and-machine-inspection inspection-privacy-ambiguity-and-range corpse-inspection-privacy-and-proximity exact-quality-and-legacy no-quality-substitution rare-partial-capacity partial-ammunition blueprint-metadata equipped-armor damaged-stack logistic-container-inventories machine-module-transfers inventory-permission-guards dry-fluid-capable-assembler-tiers nonempty-input-output-and-modules native-progress-and-recipe-locks fluid-residue-is-preserved unsupported-and-locked-recipes)
+  @cases ~w(transport-tiers-qualities-and-modded-prototypes transport-invalid-targets-and-bounds quality-agnostic-entity-and-machine-inspection inspection-privacy-ambiguity-and-range corpse-inspection-privacy-and-proximity exact-quality-and-legacy no-quality-substitution rare-partial-capacity partial-ammunition blueprint-metadata equipped-armor character-equipment-native-transfers damaged-stack logistic-container-inventories machine-module-transfers inventory-permission-guards dry-fluid-capable-assembler-tiers nonempty-input-output-and-modules native-progress-and-recipe-locks fluid-residue-is-preserved unsupported-and-locked-recipes)
 
   test "offline engine invariants and captured native receipts conform to typed EYG" do
     project = Path.expand("..", __DIR__)
@@ -92,6 +92,8 @@ defmodule FactorioControl.HeadlessTest do
          directory
        )
        when method in [
+              "equip",
+              "inspect_equipment",
               "transfer",
               "transfer_quality",
               "set_recipe",
@@ -102,6 +104,8 @@ defmodule FactorioControl.HeadlessTest do
             ] do
     effect =
       %{
+        "equip" => "Equip",
+        "inspect_equipment" => "InspectEquipment",
         "transfer" => "Transfer",
         "transfer_quality" => "TransferQuality",
         "set_recipe" => "SetRecipe",
@@ -114,10 +118,14 @@ defmodule FactorioControl.HeadlessTest do
     position = args["position"]
 
     host_args =
-      Map.put(args, "position", %{
-        "x2" => round(position["x"] * 2),
-        "y2" => round(position["y"] * 2)
-      })
+      if position do
+        Map.put(args, "position", %{
+          "x2" => round(position["x"] * 2),
+          "y2" => round(position["y"] * 2)
+        })
+      else
+        args
+      end
 
     source = TestHeadless.replay_source(effect)
     inputs = %{"request" => host_args}
@@ -144,6 +152,9 @@ defmodule FactorioControl.HeadlessTest do
     cond do
       not response["ok"] ->
         assert value["error"] =~ response["error"]["code"]
+
+      method == "inspect_equipment" ->
+        assert value["slots"] == response["data"]["slots"]
 
       method == "inspect_transport" ->
         assert value["name"] == response["data"]["name"]

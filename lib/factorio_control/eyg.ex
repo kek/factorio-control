@@ -180,6 +180,7 @@ defmodule FactorioControl.Eyg do
       "Stop" => contract(record([]), receipt)
     }
     |> Map.merge(FactorioControl.Eyg.Expansion.contracts())
+    |> Map.merge(FactorioControl.Eyg.Equipment.contracts())
     |> Map.merge(FactorioControl.Eyg.Memory.contracts())
   end
 
@@ -265,6 +266,9 @@ defmodule FactorioControl.Eyg do
 
             effect in FactorioControl.Eyg.Memory.effects() ->
               FactorioControl.Eyg.Memory.handle(effect, argument, Keyword.get(opts, :memory_root))
+
+            effect in ["InspectEquipment", "Equip"] ->
+              FactorioControl.Eyg.Equipment.handle(effect, argument, call)
 
             true ->
               handle(effect, argument, call, await)

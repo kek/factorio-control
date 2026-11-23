@@ -1,7 +1,7 @@
 -- Isolated engine tests, never installed by scripts/server. No fixture runs in
 -- ordinary saves: this requires Factorio's offline --test-scenario test argument.
 assert(script.test_arg == 'factorio-control-native-tests/v1', 'Use the isolated headless test runner')
-assert(script.active_mods.base == '2.1.24', 'These tests require Factorio 2.1.24')
+assert(script.active_mods.base == '2.1.25', 'These tests require Factorio 2.1.25')
 
 local actor, chest, source, carried, assembler2, assembler3
 local completed, current = {}, 'setup'
@@ -334,6 +334,39 @@ local function run()
     eq(equipment.name, 'battery-equipment'); eq(equipment.quality.name, 'uncommon'); eq(equipment.energy, 1234)
     move('give', 'power-armor-mk2', 'rare', 1)
     eq(stack(source, 'power-armor-mk2', 'rare').grid.get{0, 0}.energy, 1234)
+  end)
+  test('character-equipment-native-transfers', function()
+    empty_items()
+    local armor = actor.get_inventory(defines.inventory.character_armor)
+    local guns = actor.get_inventory(defines.inventory.character_guns)
+    local ammo = actor.get_inventory(defines.inventory.character_ammo)
+    armor.clear(); guns.clear(); ammo.clear()
+    carried[1].set_stack{name = 'power-armor-mk2', quality = 'rare', count = 1}
+    carried[1].grid.put{name = 'battery-equipment', quality = 'uncommon', position = {0, 0}}
+    carried[1].health = 0.7
+    ok('equip', {inventory='armor',slot=1,main_slot=1,direction='equip'})
+    eq(armor[1].quality.name, 'rare'); assert(math.abs(armor[1].health - 0.7) < 0.00001)
+    eq(armor[1].grid.get{0,0}.quality.name, 'uncommon')
+    carried[2].set_stack{name='pistol',count=1}
+    ok('equip', {inventory='guns',slot=1,main_slot=2,direction='equip'})
+    carried[3].set_stack{name='firearm-magazine',count=2}; carried[3].ammo=3
+    ok('equip', {inventory='ammo',slot=1,main_slot=3,direction='equip'})
+    eq(ammo[1].ammo, 3); eq(ammo[1].count, 2)
+    local observed = ok('inspect_equipment', {})
+    eq(#observed.slots, 7)
+    carried[1].set_stack{name='iron-plate',count=1}
+    reject('occupied_destination', 'equip', {inventory='guns',slot=1,main_slot=1,direction='unequip'})
+    carried[1].clear()
+    ok('equip', {inventory='ammo',slot=1,main_slot=3,direction='unequip'})
+    eq(carried[3].ammo, 3); eq(carried[3].count, 2)
+    ok('equip', {inventory='guns',slot=1,main_slot=2,direction='unequip'})
+    carried[#carried].set_stack{name='iron-plate',count=1}
+    reject('inventory_full', 'equip', {inventory='armor',slot=1,main_slot=1,direction='unequip'})
+    carried[#carried].clear()
+    ok('equip', {inventory='armor',slot=1,main_slot=1,direction='unequip'})
+    eq(carried[1].quality.name, 'rare'); eq(carried[1].grid.get{0,0}.name, 'battery-equipment')
+    reject('invalid_item', 'equip', {inventory='ammo',slot=2,main_slot=2,direction='equip'})
+    reject('empty_source', 'equip', {inventory='guns',slot=2,main_slot=4,direction='equip'})
   end)
   test('damaged-stack', function()
     empty_items()

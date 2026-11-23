@@ -149,6 +149,21 @@ defmodule FactorioControl.EvaluatorTest do
     end
   end
 
+  test "contract count remains bounded while accommodating gameplay recovery" do
+    contracts =
+      Map.new(1..64, fn n ->
+        {"Effect#{n}", %{argument: %{kind: "integer"}, result: %{kind: "integer"}}}
+      end)
+
+    assert {:ok, %{"value" => 1}, _} = run("1", contracts, fn _, _ -> flunk("no host call") end)
+
+    assert_raise ArgumentError, "invalid effect contracts", fn ->
+      run("1", Map.put(contracts, "Overflow", contracts["Effect1"]), fn _, _ ->
+        flunk("no host call")
+      end)
+    end
+  end
+
   test "invalid host contracts are rejected before evaluation" do
     for contracts <- [
           %{"lower" => %{argument: %{kind: "integer"}, result: %{kind: "integer"}}},
