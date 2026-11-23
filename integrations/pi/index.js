@@ -1,13 +1,20 @@
 import { runProgram } from "./runner.js";
 
+// Executed against the real parser/typechecker in test/eyg_adapter_test.exs.
+export const programExamples = {
+  inspectBot: 'match perform InspectBot({}) {Ok(s)->{{success:True({}),inventory:s.bot.inventory,x_milli:s.bot.x_milli,y_milli:s.bot.y_milli,error:""}} Error(e)->{{success:False({}),inventory:[],x_milli:0,y_milli:0,error:e}}}',
+  describeEffect: 'match perform DescribeEffect({name:"Build"}) {Ok(s)->{{success:True({}),argument:s.argument_json,result:s.result_json,error:""}} Error(e)->{{success:False({}),argument:"",result:"",error:e}}}',
+};
+
 export function install(pi, run = runProgram, env = process.env) {
   const only = () => pi.setActiveTools(["factorio_eyg"]);
   pi.registerTool({
     name: "factorio_eyg",
     label: "Factorio EYG",
     description: `Run typed EYG directly; no files or commands. Host grants only gameplay effects, never shell, filesystem, network, imports or achievement confirmation. Endpoint, actor and limits belong to the operator.
-Use Result matching: match perform InspectBot({}) {Ok(s)->{{success:True({}),bot:s.bot}} Error(e)->{{success:False({}),error:e}}}.
-Discover argument/result shapes using: match perform DescribeEffect({name:"Build"}) {Ok(s)->{{argument:s.argument_json,result:s.result_json}} Error(e)->{{error:e}}}.
+EYG requires every match branch to return the same record fields and field types. Use typed defaults (empty lists, empty strings, zero) on error; do not return a snapshot on success and only an error field on failure. A type-check rejection occurs before effect dispatch: correct the program rather than blaming endpoint/grants.
+Use Result matching: ${programExamples.inspectBot}
+Discover argument/result shapes using: ${programExamples.describeEffect}
 Effects: DescribeEffect, Inspect, InspectBot, InspectEntity, InspectResources, InspectAction, InspectSimulation, InspectRecipe, InspectArea, InspectTransport, InspectWater, InspectTechnology, InspectMachine, Craft, WalkTo, Mine, Rotate, Build, Transfer, TransferQuality, Wait, Stop, Research, SetChestLimit, BuildUnderground, SetRecipe, ConnectPower, MineObject, HandCraft.
 Positions are integer half tiles x2/y2; observations are thousandths x_milli/y_milli. Inspect before changing anything. Stop dependent work on error. After uncertain outcomes inspect bot/action/inventories; do not replay mutations. At most 100 effects, 300s/run, 48000 UTF-8 source bytes. Return plain records, not raw Result variants.`,
     parameters: {type: "object", properties: {program: {type: "string", minLength: 1, maxLength: 48000}}, required: ["program"], additionalProperties: false},

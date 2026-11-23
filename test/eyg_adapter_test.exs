@@ -139,6 +139,55 @@ defmodule FactorioControl.Eyg.AdapterTest do
            }
   end
 
+  test "exact Pi tool examples typecheck and handle success and errors", %{config: config} do
+    {json, 0} =
+      System.cmd("node", [
+        "--input-type=module",
+        "-e",
+        "import {programExamples} from './integrations/pi/index.js'; console.log(JSON.stringify(programExamples))"
+      ])
+
+    examples = JSON.decode!(json)
+
+    for {name, code} <- examples, fail_backend <- [false, true] do
+      runner = fn source, _, opts ->
+        call = fn :inspect, %{"radius" => 0} ->
+          if fail_backend do
+            {:ok, %{"ok" => false, "error" => "test unavailable"}}
+          else
+            {:ok,
+             %{
+               "ok" => true,
+               "tick" => 42,
+               "data" => %{
+                 "position" => %{"x" => 1, "y" => 2},
+                 "health" => 100,
+                 "surface" => "nauvis",
+                 "inventory" => [],
+                 "active_action" => nil
+               }
+             }}
+          end
+        end
+
+        Eyg.run(nil, source, Keyword.put(opts, :call, call))
+      end
+
+      result = Adapter.execute(%{"program" => code}, config, runner)
+      assert result.error != "type check failed (invalid type or unapproved effects)"
+
+      if name == "inspectBot" and fail_backend do
+        assert result.value["success"] == false
+        assert result.value["inventory"] == []
+        assert result.value["error"] != ""
+      else
+        assert result.success, inspect(result)
+        assert result.value["success"] == true
+        assert result.value["error"] == ""
+      end
+    end
+  end
+
   test "failure never retries and demands recovery", %{config: config} do
     runner = fn _, _, opts ->
       opts[:trace].(%{type: "action_submission", method: "walk_to"})

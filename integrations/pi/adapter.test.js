@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {EventEmitter} from "node:events";
 import {PassThrough} from "node:stream";
-import {install} from "./index.js";
+import {install, programExamples} from "./index.js";
 import {runProgram} from "./runner.js";
 
 function fakeSpawn(result, seen, hang = false) {
@@ -25,6 +25,8 @@ test("registers only EYG and blocks all alternate tools even when reenabled", as
   const events = {}; const tools = []; const active = [];
   install({registerTool: t => tools.push(t), on: (n, f) => events[n] = f, setActiveTools: t => active.push(t)}, async () => ({success: true}), {FACTORIO_EYG_PROJECT: "/project"});
   assert.equal(tools.length, 1);
+  for (const program of Object.values(programExamples))
+    assert.ok(tools[0].description.includes(program), "advertise the typechecked examples verbatim");
   events.session_start(); events.before_agent_start();
   assert.deepEqual(active, [["factorio_eyg"], ["factorio_eyg"]]);
   for (const name of ["bash", "write", "read", "codemode", "mcp", "subagent", "unknown"])
