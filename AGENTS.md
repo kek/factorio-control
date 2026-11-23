@@ -1,6 +1,6 @@
 # Factorio gameplay workflow
 
-- Before Factorio gameplay, planning, or capability development, read the [Factorio skill](skills/factorio/SKILL.md).
+- Before Factorio gameplay, planning, or capability development, read the [Factorio skill](skills/factorio/SKILL.md). Full skill text supplied by `/skill:factorio` satisfies this requirement in gameplay-only sessions; no filesystem tool is needed. Use typed `DescribeEffect` for schema discovery there.
 - Keep personal paths and agent/sandbox setup in user configuration. Repository instructions should describe portable Factorio and factorio-control behavior.
 - Inspect and control the game only through typed EYG host effects executed by EYG programs. Do not bypass them with direct `Rcon.lua`, console Lua, `Bot.call`, `mix factorio`, or temporary administrator scripts for gameplay or planning.
 - When a task needs a missing observation or action, first extend the host contract and bounded mod implementation, test it, then use that capability through EYG. Preserve execution traces and inspect confirmed results before continuing after a failure; never blindly resubmit uncertain mutations.
