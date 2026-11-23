@@ -17,6 +17,7 @@ defmodule Mix.Tasks.Factorio.Adapter do
             port: port,
             password: System.get_env("FACTORIO_RCON_PASSWORD", ""),
             bot: System.get_env("FACTORIO_BOT", "default"),
+            memory_root: System.get_env("FACTORIO_EYG_MEMORY_ROOT"),
             artifact_root: System.get_env("FACTORIO_EYG_ARTIFACT_ROOT", "tmp/factorio-eyg")
           })
         else

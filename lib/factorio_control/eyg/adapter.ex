@@ -11,7 +11,7 @@ defmodule FactorioControl.Eyg.Adapter do
     InspectSimulation InspectRecipe InspectArea InspectTransport InspectWater
     InspectTechnology InspectMachine Craft WalkTo Mine Rotate Build Transfer
     TransferQuality Wait Stop Research SetChestLimit BuildUnderground SetRecipe
-    ConnectPower MineObject HandCraft)
+    ConnectPower MineObject HandCraft ReadNotes SaveCheckpoint ProposeLesson)
   @source_limit 48_000
 
   def effects, do: @effects
@@ -77,7 +77,8 @@ defmodule FactorioControl.Eyg.Adapter do
         bot: config.bot,
         timeout: 300_000,
         max_effects: 100,
-        trace: trace
+        trace: trace,
+        memory_root: Map.get(config, :memory_root)
       ]
 
       result =

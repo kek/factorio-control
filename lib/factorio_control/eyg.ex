@@ -180,10 +180,12 @@ defmodule FactorioControl.Eyg do
       "Stop" => contract(record([]), receipt)
     }
     |> Map.merge(FactorioControl.Eyg.Expansion.contracts())
+    |> Map.merge(FactorioControl.Eyg.Memory.contracts())
   end
 
   # Irreversible console acknowledgement is never included in implicit grants.
-  def default_effects, do: Map.keys(contracts()) -- ["ConfirmLuaConsole"]
+  def default_effects,
+    do: Map.keys(contracts()) -- ["ConfirmLuaConsole" | FactorioControl.Eyg.Memory.effects()]
 
   def run(client, code, opts \\ []) do
     bot = Bot.validate_name!(Keyword.get(opts, :bot, "default"))
@@ -257,9 +259,16 @@ defmodule FactorioControl.Eyg do
         code,
         context,
         fn effect, argument ->
-          if Map.has_key?(context, effect),
-            do: handle(effect, argument, call, await),
-            else: {:fatal, :unapproved_effect}
+          cond do
+            not Map.has_key?(context, effect) ->
+              {:fatal, :unapproved_effect}
+
+            effect in FactorioControl.Eyg.Memory.effects() ->
+              FactorioControl.Eyg.Memory.handle(effect, argument, Keyword.get(opts, :memory_root))
+
+            true ->
+              handle(effect, argument, call, await)
+          end
         end,
         opts
       )
