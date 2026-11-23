@@ -407,7 +407,9 @@ function methods.mine_object(args)
     "invalid_target", "Expected a minable neutral tree/rock or friendly item-placeable infrastructure")
   check(c.can_reach_entity(e), "out_of_reach", "Mining target is out of reach")
   local a = start("mine-object", args)
-  a.position, a.target, a.count = p, e, 0
+  -- Resolve the half-tile request once, then mine the actual entity. Natural
+  -- trees are off-grid: the lookup point need not select the same entity.
+  a.position, a.target, a.count = {x = e.position.x, y = e.position.y}, e, 0
   return public_action(a)
 end
 
@@ -662,8 +664,26 @@ local function tick()
       finish("failed", "out_of_reach", "Mining target moved out of reach") return
     end
     c.update_selected_entity(a.position)
-    if c.selected ~= a.target then finish("failed", "target_lost", "Could not select mining target") return end
-    c.mining_state = {mining = true, position = a.position}
+    local selected_position = a.position
+    if c.selected ~= a.target then
+      -- Overlapping tree selection boxes can cover the centre. Try at most nine
+      -- inset points in the resolved target's selection box; never mine another
+      -- selected entity just because it overlaps the requested one.
+      local box = a.target.selection_box
+      if box then
+        for _, fx in ipairs{0.5, 0.1, 0.9} do
+          for _, fy in ipairs{0.5, 0.1, 0.9} do
+            local point = {x = box.left_top.x + (box.right_bottom.x - box.left_top.x) * fx,
+              y = box.left_top.y + (box.right_bottom.y - box.left_top.y) * fy}
+            c.update_selected_entity(point)
+            if c.selected == a.target then selected_position = point; break end
+          end
+          if c.selected == a.target then break end
+        end
+      end
+    end
+    if c.selected ~= a.target then finish("failed", "target_lost", "Could not select the resolved mining target") return end
+    c.mining_state = {mining = true, position = selected_position}
   elseif a.kind == "mine" then
     a.count = math.max(0, c.get_item_count{name = a.item, quality = "normal"} - a.initial)
     if a.count >= a.requested then finish("completed") return end

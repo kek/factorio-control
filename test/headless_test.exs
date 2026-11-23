@@ -3,7 +3,7 @@ defmodule FactorioControl.HeadlessTest do
   alias FactorioControl.{Eyg, Server, TestHeadless}
   @moduletag :headless
   @moduletag timeout: 180_000
-  @cases ~w(transport-tiers-qualities-and-modded-prototypes transport-invalid-targets-and-bounds quality-agnostic-entity-and-machine-inspection inspection-privacy-ambiguity-and-range corpse-inspection-privacy-and-proximity exact-quality-and-legacy no-quality-substitution rare-partial-capacity partial-ammunition blueprint-metadata equipped-armor character-equipment-native-transfers damaged-stack logistic-container-inventories machine-module-transfers inventory-permission-guards dry-fluid-capable-assembler-tiers nonempty-input-output-and-modules native-progress-and-recipe-locks fluid-residue-is-preserved unsupported-and-locked-recipes)
+  @cases ~w(transport-tiers-qualities-and-modded-prototypes transport-invalid-targets-and-bounds quality-agnostic-entity-and-machine-inspection inspection-privacy-ambiguity-and-range corpse-inspection-privacy-and-proximity exact-quality-and-legacy no-quality-substitution rare-partial-capacity partial-ammunition blueprint-metadata equipped-armor character-equipment-native-transfers damaged-stack logistic-container-inventories machine-module-transfers inventory-permission-guards dry-fluid-capable-assembler-tiers nonempty-input-output-and-modules native-progress-and-recipe-locks fluid-residue-is-preserved unsupported-and-locked-recipes fractional-tree-mining)
 
   test "offline engine invariants and captured native receipts conform to typed EYG" do
     project = Path.expand("..", __DIR__)
@@ -55,6 +55,47 @@ defmodule FactorioControl.HeadlessTest do
       expected = Enum.count(receipts, &(&1["request"]["method"] != "spawn"))
       assert replayed == expected, "every recorded non-setup request must have typed EYG coverage"
       assert replayed > 30
+
+      mining =
+        TestHeadless.read_jsonl!(Path.join(run.artifacts, "script-output/native-mining.jsonl"))
+
+      assert length(mining) == 2
+
+      for {event, index} <- Enum.with_index(mining, 1) do
+        args = event["request"]["args"]
+        position = args["position"]
+
+        input =
+          Map.put(args, "position", %{
+            "x2" => round(position["x"] * 2),
+            "y2" => round(position["y"] * 2)
+          })
+
+        source =
+          "match perform MineObject(input.request) {Ok(s)->{{count:s.count,error:\"\"}} Error(e)->{{count:0,error:e}}}"
+
+        call = fn :mine_object, received ->
+          assert received == args
+          {:ok, event["response"]}
+        end
+
+        await = fn id ->
+          assert id == event["terminal"]["data"]["id"]
+          {:ok, event["terminal"]}
+        end
+
+        assert {:ok, %{"value" => %{"count" => 1, "error" => ""}}, trace} =
+                 Eyg.run(nil, source,
+                   effects: ["MineObject"],
+                   inputs: %{"request" => input},
+                   call: call,
+                   await: await
+                 )
+
+        prefix = Path.join(run.artifacts, "mining-#{index}")
+        File.write!(prefix <> ".eyg", Eyg.Evaluator.program(source, %{"request" => input}))
+        File.write!(prefix <> ".jsonl", Enum.map_join(trace, "\n", &JSON.encode!/1) <> "\n")
+      end
 
       File.write!(
         Path.join(run.artifacts, "verification.json"),

@@ -530,13 +530,50 @@ local function run()
   end)
 end
 
-script.on_event(defines.events.on_tick, function()
-  if storage.native_tests_finished then return end
+local mining, mining_index = nil, 0
+local function begin_fractional_mining()
+  mining_index = mining_index + 1
+  local name = ({'dead-dry-hairy-tree', 'tree-09'})[mining_index]
+  if not name then
+    completed[#completed + 1] = 'fractional-tree-mining'
+    return false
+  end
+  current = 'fractional-tree-mining'
+  actor.teleport({20,18})
+  local tree = assert(actor.surface.create_entity{name=name, position={20.8125,20.3125}, force='neutral'})
+  local args = {name=name, position={x=21,y=20.5}, timeout_ticks=300}
+  local envelope = {method='mine_object',args=args,bot='default'}
+  local response = remote.call('bot','request',envelope)
+  assert(response.ok, helpers.table_to_json(response))
+  mining = {tree=tree, request=envelope, response=response, initial=actor.get_item_count('wood')}
+  return true
+end
+local function finish_suite(passed, error_message)
   storage.native_tests_finished = true
-  local passed, error_message = pcall(run)
   local result = {suite = 'factorio-control-native-tests/v1', passed = passed,
     completed = completed, current = current, error = passed and '' or tostring(error_message)}
   helpers.write_file('native-results.json', helpers.table_to_json(result), false)
   log('FACTORIO_CONTROL_NATIVE_RESULT ' .. helpers.table_to_json(result))
   script.finish_test(passed)
+end
+script.on_event(defines.events.on_tick, function()
+  if storage.native_tests_finished then return end
+  local passed, done = pcall(function()
+    if not storage.native_tests_started then
+      storage.native_tests_started = true
+      run()
+      return not begin_fractional_mining()
+    end
+    local response = remote.call('bot','request',{method='action',args={id=mining.response.data.id},bot='default'})
+    assert(response.ok, helpers.table_to_json(response))
+    if response.data.status == 'running' then return false end
+    eq(response.data.status, 'completed')
+    eq(response.data.count, 1)
+    assert(not mining.tree.valid, 'tree must actually be mined')
+    assert(actor.get_item_count('wood') > mining.initial, 'mining must yield real wood')
+    helpers.write_file('native-mining.jsonl', helpers.table_to_json{request=mining.request,response=mining.response,terminal=response} .. '\n', true)
+    return not begin_fractional_mining()
+  end)
+  if not passed then finish_suite(false, done)
+  elseif done then finish_suite(true, '') end
 end)

@@ -596,6 +596,39 @@ test('MineObject uses normal async mining and completes exactly once for trees/r
   end
 end)
 
+test('MineObject selects the resolved fractional tree rather than the rounded request', function()
+  local e = entity('tree', 'tree', {name = 'neutral'})
+  e.position = {x = 1.1875, y = 0.3125}
+  surface.find_entity = function(name, p) if name == 'tree' then return e end end
+  c.update_selected_entity = function(p)
+    c.selected = p.x == e.position.x and p.y == e.position.y and e or nil
+  end
+  local a = ok('mine_object', {name='tree',position={x=1,y=0.5},timeout_ticks=10})
+  eq(a.position.x, e.position.x); eq(a.position.y, e.position.y)
+  advance(1)
+  eq(c.selected, e); eq(c.mining_state.mining, true)
+  e.valid = false; advance(1); eq(ok('action',{id=a.id}).status,'completed')
+end)
+
+test('MineObject searches bounded selection points but never mines a neighbouring tree', function()
+  local e = entity('tree', 'tree', {name = 'neutral'})
+  local neighbour = {valid=true}
+  e.selection_box = {left_top={x=0,y=-1},right_bottom={x=2,y=1}}
+  local attempts = 0
+  c.update_selected_entity = function(p)
+    attempts = attempts + 1
+    c.selected = p.x == 0.2 and p.y == -0.8 and e or neighbour
+  end
+  local a = ok('mine_object', {name='tree',position=e.position,timeout_ticks=10})
+  advance(1); eq(c.selected,e); eq(c.mining_state.mining,true); assert(attempts <= 10)
+  ok('stop')
+  attempts = 0
+  c.update_selected_entity = function() attempts=attempts+1; c.selected=neighbour end
+  a = ok('mine_object', {name='tree',position=e.position,timeout_ticks=10})
+  advance(1); eq(ok('action',{id=a.id}).error.code,'target_lost'); eq(attempts,10)
+  eq(c.mining_state.mining,false)
+end)
+
 test('MineObject bounded timeout, Stop, lost selection and lost reach', function()
   local e = entity('tree', 'tree', {name = 'neutral'})
   local args = {name = 'tree', position = e.position, timeout_ticks = 2}
