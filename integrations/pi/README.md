@@ -25,8 +25,27 @@ configuration. Set these in the environment of the **Pi process**:
 From the checkout, start a separate gameplay session:
 
 ```sh
-pi --no-extensions --no-mcp --no-tools -e ./integrations/pi/index.js
+FACTORIO_EYG_PROJECT="$PWD" pi \
+  --no-extensions --no-mcp \
+  --tools factorio_eyg \
+  --skill ./skills/factorio \
+  -e ./integrations/pi/index.js
 ```
+
+Then explicitly load the gameplay instructions with your request:
+
+```text
+/skill:factorio Keep building the base until continuous supply and research are verified.
+```
+
+`--skill` registers the repository skill, which lives outside Pi's standard
+skill discovery directories. Registration advertises the skill but does not
+inject its full instructions; `/skill:factorio` expands them into the conversation
+without granting a filesystem tool. Use the skill command when starting gameplay
+so the agent receives the workflow and completion criteria.
+
+The inline project path refers to the checkout in the shell launching Pi; the
+other operator environment variables above must still be set.
 
 The extension enables only `factorio_eyg` at session start and before each run.
 There is no model-callable mode switch. Exit to an ordinary development session
