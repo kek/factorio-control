@@ -219,6 +219,12 @@ optional display-only `purpose`; the executor accepts only `program`.
 - Each run retains `program.eyg` and synced `trace.jsonl` in a fresh private
   directory, including source hash, fixed grants, receipts and adapter result.
 - Response: `{success,error,value,artifact_dir,recovery_required}`.
+- Invalid input, failed process starts and artifact setup failures are rejected
+  before submission, with `recovery_required: false`. Parse/type rejections also
+  need no world recovery when the evaluator trace confirms no effects ran.
+- Each process run settles once. Late errors/cancellation cannot change a
+  completed result or signal that completed process. Interrupted processes get
+  SIGTERM and, if still open after two seconds, SIGKILL; they are never replayed.
 - A timeout, abort or lost response may leave gameplay partially completed.
   There are **no retries**. Inspect the world and receipts before further
   mutations; cancellation is not rollback. A killed process may leave only a
@@ -259,5 +265,8 @@ terminal widths without a model call or a game connection.
 Tests use fake game/process backends and the real EYG parser/typechecker. They
 verify denial before backend dispatch, fixed grants, source/trace preservation,
 non-shell process invocation, limits, uncertainty handling and the Pi tool gate.
+Runner regressions cover failed starts, synchronous stdin errors, output overflow,
+late-event races and malformed replies; artifact setup failures must never invoke
+the game runner or expose operator paths/credentials.
 Live Pi loading and the initial read-only game observation must be checked in
 the operator's isolated session; unit tests do not establish activation here.
