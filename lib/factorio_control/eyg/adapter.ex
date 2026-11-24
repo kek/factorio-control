@@ -49,6 +49,13 @@ defmodule FactorioControl.Eyg.Adapter do
   end
 
   defp execute_program(code, config, runner) do
+    case prepare_artifacts(code, config) do
+      {:ok, dir, file} -> run_program(code, config, runner, dir, file)
+      {:error, error} -> response(false, error, nil, nil, false)
+    end
+  end
+
+  defp prepare_artifacts(code, config) do
     # A fresh, private directory makes source and trace names host-owned, with no
     # model path interpolation. The root must be an operator-controlled directory.
     id = Base.encode16(:crypto.strong_rand_bytes(16), case: :lower)
@@ -58,7 +65,12 @@ defmodule FactorioControl.Eyg.Adapter do
     File.chmod!(dir, 0o700)
     File.write!(Path.join(dir, "program.eyg"), code, [:exclusive])
     {:ok, file} = File.open(Path.join(dir, "trace.jsonl"), [:write, :exclusive, :binary])
+    {:ok, dir, file}
+  rescue
+    _ -> {:error, "Cannot prepare source/trace artifacts; no program effects dispatched"}
+  end
 
+  defp run_program(code, config, runner, dir, file) do
     trace = fn event ->
       :ok = IO.binwrite(file, JSON.encode!(event) <> "\n")
       :ok = :file.sync(file)

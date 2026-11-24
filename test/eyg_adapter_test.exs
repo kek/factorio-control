@@ -35,6 +35,27 @@ defmodule FactorioControl.Eyg.AdapterTest do
     refute File.exists?(config.artifact_root)
   end
 
+  test "artifact setup failures are secret-free and never submit a program", %{config: config} do
+    File.mkdir_p!(config.artifact_root)
+    blocked = Path.join(config.artifact_root, "not-a-directory")
+    File.write!(blocked, "occupied")
+
+    result =
+      Adapter.execute(
+        %{"program" => "{}"},
+        %{config | artifact_root: blocked},
+        fn _, _, _ -> flunk("artifact failure must precede submission") end
+      )
+
+    refute result.success
+    refute result.recovery_required
+    assert result.artifact_dir == nil
+    assert result.error =~ "no program effects dispatched"
+    refute result.error =~ config.password
+    refute result.error =~ blocked
+    assert File.read!(blocked) == "occupied"
+  end
+
   test "retains exclusive source and traces; grants are fixed and secret-free", %{config: config} do
     runner = fn code, actual_config, opts ->
       assert actual_config.bot == "default"
