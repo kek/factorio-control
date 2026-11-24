@@ -39,9 +39,55 @@ change when other work sorts or changes inventory. Native transfers preserve
 quality, health, armour grids and partial magazines. Armour removal is rejected
 if inventory shrinkage could displace items; clear bonus slots first.
 
-Equipping does not add combat controls, ensure gun/ammo compatibility or make a
-route safe. Continue incremental terrain/threat inspection. On uncertain results,
+Equipping alone does not ensure gun/ammo compatibility or make a route safe. Continue incremental terrain/threat inspection. On uncertain results,
 inspect equipment and inventory before further mutations, never blindly retry.
+
+## Combat programs
+
+The agent chooses tactics in EYG; the host only provides bounded observations and
+normal engine weapon actions. Use `InspectEquipment` to check gun/ammunition slots,
+then `InspectCombat({radius:32})` for actor health, `selected_gun_slot`, and up to
+32 local enemies with `unit_number`, name, position, health and `can_shoot` for the
+currently selected gun. Radius is 1–64 tiles. Inspect truncation; an incomplete
+survey is not proof the area is safe.
+
+`Attack({unit_number:OBSERVED_ID,gun_slot:1,ticks:60})` fires a stationary burst for
+1–300 ticks at the explicit enemy using that equipped gun/ammo slot. Only hostile
+`enemy` units, turrets and spawners on the actor's surface are permitted; friendly,
+neutral and cease-fire targets are rejected. Lookup is bounded to 129 enemies
+within 64 tiles; a missing target is rejected rather than substituted. Native
+weapon/ammo compatibility and range checks apply. No ammo, damage, invulnerability
+or kills are granted by the host. `Stop` cancels firing, and completion/death/error
+also clears shooting state. Attack shares the actor's single-action slot; walking
+and firing simultaneously are not currently supported.
+
+For an enemy ID obtained from a fresh survey, a single burst looks like this
+(replace `OBSERVED_ID` with its integer ID, not a coordinate or guessed value):
+
+```eyg
+match perform Attack({unit_number:OBSERVED_ID,gun_slot:1,ticks:60}) {
+ Ok(r) -> {{success:True({}),rounds:r.rounds_used,target_gone:r.target_gone,error:""}}
+ Error(e) -> {{success:False({}),rounds:0,target_gone:False({}),error:e}}
+}
+```
+
+The error branch's zero/false values are typed placeholders, not proof that no
+rounds were fired or that the target survived. Inspect actual state after failure.
+
+A terminal receipt reports `rounds_used`, `target_gone`, initial/final target health
+and `action_id`. Burst completion is not proof of a kill. `target_gone` means the
+target no longer exists, without attributing who destroyed it. Failed/cancelled
+bursts may already have consumed ammo or inflicted damage: inspect actor actions,
+health, equipment and enemies before continuing, never replay uncertain bursts.
+Use short bursts near danger so the next decision uses fresh health/threat data.
+Choose inspected clear retreat waypoints; do not kite blindly into unknown terrain.
+
+`scenarios/combat/burst.eyg` is a tested one-burst example with a conservative health
+guard and observed target selection, not a background controller or a guarantee
+of winning. Compose bounded stages/loops appropriate to observed conditions,
+keeping the 100-effect/run budget. Check safety between bursts rather than issuing
+a long fixed attack script. Record combat outcomes with before/after health,
+ammo, threats and trace references; propose tactical lessons only with evidence.
 
 ## Broad goals and durable learning
 
@@ -256,6 +302,10 @@ moving on, and size each step by the calculation formulas in the reference.
 - Inventory stacks, resource amounts, reach, placement alignment and collisions
   constrain actions. Survey routes and obstacles through EYG before construction.
   Walking is not general pathfinding; use observed clear waypoints.
+  `MineObject` resolves the requested half-tile point to an entity, then uses its
+  exact position and a bounded selection-box search for off-grid trees. No new
+  precision effect is needed. On `target_lost`, inspect the target, actor/action
+  and actual inventory before choosing another action; do not blindly replay.
 - Transfers use direction `take` (entity to bot) or `give` (bot to entity).
   Storage chests use inventory `main`; machine inventories depend on the target
   and purpose (`input`, `output`, `fuel`, `ammo` or `modules`). Inspect the target
@@ -293,6 +343,13 @@ moving on, and size each step by the calculation formulas in the reference.
   verified, what remains unfinished and the concrete reason work cannot continue.
 
 ## EYG execution discipline
+
+- Separate `let` bindings with newlines, never semicolons. Start a new session
+  with the tested checkpoint/bot examples in the tool instructions rather than
+  combining guessed schemas. `ReadNotes` returns a record with a `notes` list;
+  return `s.notes`, not `s`, when the error branch uses an empty notes list.
+  A confirmed parse/type rejection before effect dispatch needs a corrected
+  program, not world-state recovery or an operator intervention.
 
 - Every EYG `match` branch must return the same record fields with matching field
   types. An `Ok` branch returning `{bot: s.bot}` and an `Error` branch returning

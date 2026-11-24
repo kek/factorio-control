@@ -161,6 +161,12 @@ minable neutral tree/rock or friendly infrastructure whose prototype has
 `items_to_place_this`, regardless of base-game name or tier. Characters, units,
 resources, ghosts and corpses are excluded. Native minability and character
 reach are checked before acceptance and rechecked with ownership during mining.
+The half-tile input is a lookup point, not the mining cursor: after lookup the
+mod retains the resolved entity and its exact fractional position. Selection
+tries that position, then at most nine inset points within its selection box if
+overlapping foliage obscures it. Mining starts only when the selected entity is
+the resolved target; otherwise the action fails `target_lost` without mining a
+neighbour. This does not add pathfinding or remove reach/ownership restrictions.
 It uses the existing asynchronous action/deadline/stop lifecycle. No instant destruction,
 teleport or item grant is performed. Inventory and partial results must be
 inspected after interruption; the terminal count describes a removed object,

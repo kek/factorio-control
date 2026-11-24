@@ -70,6 +70,13 @@ state, not mocked inventory behavior:
 - Blueprint labels, contents, entity tags and item identity.
 - Rare armor retaining uncommon equipment and stored energy.
 - Damaged stacks retaining health.
+- Asynchronous normal character mining of off-grid dead/live trees, with actual
+  tree removal, real wood yield and terminal receipts replayed through typed EYG.
+- Native character pistol fire against a live enemy biter: equipped weapon and
+  ammo requirements, real ammunition consumption and damage, target disappearance,
+  and cancellation of an active second burst clearing shooting state. Combat and
+  threat observations are replayed through typed EYG. Fixture enemies and weapons
+  exist only in the isolated test world.
 - All five logistic chest types: storage observations, normal/rare round trips,
   native bars and partial capacity.
 - Machine module slots: exact qualities, partial capacity, inventory observations,
