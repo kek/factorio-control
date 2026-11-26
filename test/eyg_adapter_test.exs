@@ -375,6 +375,61 @@ defmodule FactorioControl.Eyg.AdapterTest do
     end
   end
 
+  test "oversized read-only results explain the limit without requiring recovery", %{
+    config: config
+  } do
+    runner = fn code, _, opts ->
+      Eyg.run(
+        nil,
+        code,
+        Keyword.put(opts, :call, fn _, _ -> flunk("schema lookup is host-local") end)
+      )
+    end
+
+    program = """
+    let schema = perform DescribeEffect({name:"Inspect"})
+    #{inspect(String.duplicate("a", 13_000), printable_limit: :infinity)}
+    """
+
+    result = Adapter.execute(%{"program" => program}, config, runner)
+
+    refute result.success
+    refute result.recovery_required
+    assert result.error =~ "result_too_large"
+    assert result.error =~ "Return fewer fields or split read-only observations"
+    trace = File.read!(Path.join(result.artifact_dir, "trace.jsonl"))
+    assert trace =~ "effect-response"
+    assert trace =~ "result_too_large"
+  end
+
+  test "oversized results still require recovery after an immediate mutation", %{config: config} do
+    parent = self()
+
+    runner = fn code, _, opts ->
+      call = fn :stop, %{} ->
+        send(parent, :stopped)
+        {:ok, %{"ok" => true, "tick" => 42, "data" => %{}}}
+      end
+
+      Eyg.run(nil, code, Keyword.put(opts, :call, call))
+    end
+
+    program = """
+    let stopped = perform Stop({})
+    #{inspect(String.duplicate("a", 13_000), printable_limit: :infinity)}
+    """
+
+    result = Adapter.execute(%{"program" => program}, config, runner)
+
+    refute result.success
+    assert result.recovery_required
+    assert result.error =~ "result_too_large"
+    assert_received :stopped
+    refute_received :stopped
+    trace = File.read!(Path.join(result.artifact_dir, "trace.jsonl"))
+    assert trace =~ "effect-response"
+  end
+
   test "failure never retries and demands recovery", %{config: config} do
     runner = fn _, _, opts ->
       opts[:trace].(%{type: "action_submission", method: "walk_to"})

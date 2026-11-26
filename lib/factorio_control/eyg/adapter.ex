@@ -6,12 +6,13 @@ defmodule FactorioControl.Eyg.Adapter do
   """
   alias FactorioControl.{Bot, Eyg, Rcon}
 
+  @read_only_effects ~w(InspectCombat InspectEquipment DescribeEffect Inspect InspectBot
+    InspectEntity InspectResources InspectAction InspectSimulation InspectRecipe InspectArea
+    InspectTransport InspectWater InspectTechnology InspectMachine Wait ReadNotes)
   # Deliberately enumerated: adding a host effect never silently grants it here.
-  @effects ~w(InspectCombat Attack InspectEquipment Equip DescribeEffect Inspect InspectBot InspectEntity InspectResources InspectAction
-    InspectSimulation InspectRecipe InspectArea InspectTransport InspectWater
-    InspectTechnology InspectMachine Craft WalkTo Mine Rotate Build Transfer
-    TransferQuality Wait Stop Research SetChestLimit BuildUnderground SetRecipe
-    ConnectPower MineObject HandCraft ReadNotes SaveCheckpoint ProposeLesson)
+  @effects @read_only_effects ++ ~w(Attack Equip Craft WalkTo Mine Rotate Build Transfer
+    TransferQuality Stop Research SetChestLimit BuildUnderground SetRecipe ConnectPower
+    MineObject HandCraft SaveCheckpoint ProposeLesson)
   @source_limit 48_000
 
   def effects(config \\ %{}) do
@@ -132,6 +133,15 @@ defmodule FactorioControl.Eyg.Adapter do
 
             response(false, message <> "; no program effects dispatched", nil, dir, false)
 
+          {:error, :result_too_large, events} ->
+            response(
+              false,
+              "result_too_large: EYG output exceeded the result limit. Return fewer fields or split read-only observations.",
+              nil,
+              dir,
+              recovery_after_oversized_result?(events)
+            )
+
           {:error, _, _} ->
             response(
               false,
@@ -160,6 +170,14 @@ defmodule FactorioControl.Eyg.Adapter do
     after
       File.close(file)
     end
+  end
+
+  defp recovery_after_oversized_result?(events) do
+    Enum.any?(events, fn
+      %{"type" => "effect-request", "effect" => effect} -> effect not in @read_only_effects
+      %{type: type} when type in ["action_submission", "cleanup_stop"] -> true
+      _ -> false
+    end)
   end
 
   defp live(code, config, opts) do
